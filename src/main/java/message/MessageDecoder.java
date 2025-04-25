@@ -4,31 +4,23 @@ import java.nio.ByteBuffer;
 
 public class MessageDecoder {
 
-  // 메시지 헤더 구조
-  private static final int HEADER_SIZE = 6; // 길이(4) + 타입(2)
-  private static final int MAX_PAYLOAD_SIZE = 1024; // 1KB 제한 (매도/매수 주문에 충분)
+  private static final int HEADER_SIZE = 6;
+  private static final int MAX_PAYLOAD_SIZE = 30;
 
   private MessageDecoder() {
-    // 유틸리티 클래스이므로 인스턴스화 방지
   }
 
-  /**
-   * 와이어 포맷에서 메시지 디코딩
-   */
   public static Message decode(ByteBuffer buffer) {
     if (buffer == null || buffer.remaining() < HEADER_SIZE) {
       return null;
     }
 
-    // 버퍼 위치 저장
     int initialPosition = buffer.position();
 
     try {
-      // 헤더 읽기
       int length = buffer.getInt();
       short type = buffer.getShort();
 
-      // 유효성 검사
       if (length < 0 || length > MAX_PAYLOAD_SIZE) {
         buffer.position(initialPosition);
         return null;

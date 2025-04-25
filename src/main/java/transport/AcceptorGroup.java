@@ -1,4 +1,4 @@
-package main.java.net;
+package main.java.transport;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -14,7 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import main.java.core.ConnectionManager;
 
-public class AcceptSelector implements Closeable {
+public class AcceptorGroup implements Closeable {
   private static final int MAX_ACCEPTS_PER_LOOP = 64;
   private static final int BACKLOG = 1024;
   private static final int RECEIVE_BUFFER_SIZE = 65536;
@@ -28,7 +28,7 @@ public class AcceptSelector implements Closeable {
   private final int size;
   private volatile boolean started = false;
 
-  public AcceptSelector(int size, InetSocketAddress listenAddress, WorkerSelector workerSelector) throws IOException {
+  public AcceptorGroup(int size, InetSocketAddress listenAddress, WorkerSelector workerSelector) throws IOException {
     this.size = size;
     this.listenAddress = listenAddress;
     this.workerSelector = workerSelector;

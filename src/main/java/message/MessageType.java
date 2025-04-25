@@ -13,6 +13,18 @@ public enum MessageType {
     this.value = value;
   }
 
+  public static MessageType fromValue(short value) {
+    for (MessageType type : MessageType.values()) {
+      if (type.value == value) {
+        return type;
+      }
+    }
+    throw new IllegalArgumentException("Unknown message type: " + value);
+  }
+
+  /**
+   * 메시지 타입을 short 값으로 반환
+   */
   public short getValue() {
     return value;
   }

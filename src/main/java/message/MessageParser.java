@@ -1,6 +1,7 @@
 package main.java.message;
 
 import java.nio.ByteBuffer;
+import main.java.util.buffer.BufferPool;
 
 public class MessageParser implements AutoCloseable {
 
@@ -14,14 +15,14 @@ public class MessageParser implements AutoCloseable {
   /**
    * 메시지 파서 생성
    */
-  public MessageParser() {
+  public MessageParser() throws InterruptedException {
     this.buffer = BufferPool.getInstance().acquire();
   }
 
   /**
    * 메시지 파서 생성 (초기 크기 지정 - 호환성을 위해 유지)
    */
-  public MessageParser(int initialSize) {
+  public MessageParser(int initialSize) throws InterruptedException {
     this.buffer = BufferPool.getInstance().acquire();
   }
 
@@ -29,7 +30,7 @@ public class MessageParser implements AutoCloseable {
    * 데이터 추가
    * @return 백프레셔 활성화 여부 (true인 경우 데이터 수신 중단 권장)
    */
-  public boolean addData(ByteBuffer data) {
+  public boolean addData(ByteBuffer data) throws InterruptedException {
     if (buffer.position() + data.remaining() > HIGH_WATERMARK) {
       backpressureActive = true;
     }
@@ -46,7 +47,7 @@ public class MessageParser implements AutoCloseable {
   /**
    * 버퍼 확장
    */
-  private void expandBuffer(int minCapacity) {
+  private void expandBuffer(int minCapacity) throws InterruptedException {
     // 현재 버퍼 크기로 충분하지 않을 경우에만 새 버퍼 생성
     if (buffer.capacity() < minCapacity) {
       // 새 버퍼 획득
@@ -116,7 +117,7 @@ public class MessageParser implements AutoCloseable {
    * 리소스 정리
    */
   @Override
-  public void close() {
+  public void close() throws InterruptedException {
     if (buffer != null) {
       BufferPool.getInstance().release(buffer);
       buffer = null;

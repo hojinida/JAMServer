@@ -1,6 +1,7 @@
 package main.java.message;
 
 import java.nio.ByteBuffer;
+import main.java.util.buffer.BufferPool;
 
 public class MessageFactory {
 
@@ -16,7 +17,8 @@ public class MessageFactory {
   /**
    * 주문 메시지 생성 팩토리 메서드
    */
-  public static Message createOrderMessage(MessageType type, long price) {
+  public static Message createOrderMessage(MessageType type, long price)
+      throws InterruptedException {
     ByteBuffer payload = BufferPool.getInstance().acquire();
 
     try {
@@ -34,35 +36,35 @@ public class MessageFactory {
   /**
    * 매수 주문 메시지 생성
    */
-  public static Message createBuyOrder(long price) {
+  public static Message createBuyOrder(long price) throws InterruptedException {
     return createOrderMessage(MessageType.BUY_ORDER, price);
   }
 
   /**
    * 매도 주문 메시지 생성
    */
-  public static Message createSellOrder(long price) {
+  public static Message createSellOrder(long price) throws InterruptedException {
     return createOrderMessage(MessageType.SELL_ORDER, price);
   }
 
   /**
    * 체결 메시지 생성
    */
-  public static Message createExecution(long price) {
+  public static Message createExecution(long price) throws InterruptedException {
     return createOrderMessage(MessageType.EXECUTION, price);
   }
 
   /**
    * 주문 확인 메시지 생성
    */
-  public static Message createOrderAck(long price) {
+  public static Message createOrderAck(long price) throws InterruptedException {
     return createOrderMessage(MessageType.ORDER_ACK, price);
   }
 
   /**
    * 주문 거부 메시지 생성
    */
-  public static Message createOrderReject(long price) {
+  public static Message createOrderReject(long price) throws InterruptedException {
     return createOrderMessage(MessageType.ORDER_REJECT, price);
   }
 }

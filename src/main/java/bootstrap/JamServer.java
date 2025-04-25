@@ -1,12 +1,12 @@
-package main.java.core;
+package main.java.bootstrap;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import main.java.net.AcceptSelector;
-import main.java.net.WorkerSelector;
+import main.java.transport.AcceptorGroup;
+import main.java.transport.WorkerSelector;
 
 public class JamServer implements AutoCloseable {
-  private final AcceptSelector acceptSelector;
+  private final AcceptorGroup acceptSelector;
   private final WorkerSelector workerSelector;
 
   public JamServer(int port) throws IOException {
@@ -16,7 +16,7 @@ public class JamServer implements AutoCloseable {
     this.workerSelector = new WorkerSelector(nCores * 2);
     this.workerSelector.start();
 
-    this.acceptSelector = new AcceptSelector(2, address, workerSelector);
+    this.acceptSelector = new AcceptorGroup(2, address, workerSelector);
     this.acceptSelector.start();
   }
 

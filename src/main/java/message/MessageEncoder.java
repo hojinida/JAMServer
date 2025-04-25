@@ -1,6 +1,7 @@
 package main.java.message;
 
 import java.nio.ByteBuffer;
+import main.java.util.buffer.BufferPool;
 
 public class MessageEncoder {
 
@@ -14,7 +15,7 @@ public class MessageEncoder {
   /**
    * 메시지를 와이어 포맷으로 인코딩
    */
-  public static ByteBuffer encode(Message message) {
+  public static ByteBuffer encode(Message message) throws InterruptedException {
     if (message == null) {
       throw new IllegalArgumentException("Message cannot be null");
     }
