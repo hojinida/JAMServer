@@ -26,8 +26,4 @@ public final class ConnectionManager {
       CURRENT.set(0);
     }
   }
-
-  public static int getCurrent() {
-    return CURRENT.get();
-  }
 }
