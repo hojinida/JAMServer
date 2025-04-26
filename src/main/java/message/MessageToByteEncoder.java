@@ -2,6 +2,7 @@ package main.java.message;
 
 import java.nio.ByteBuffer;
 import main.java.channel.ChannelHandler;
+import main.java.channel.ChannelHandlerContext;
 
 public class MessageToByteEncoder extends ChannelHandler {
   @Override

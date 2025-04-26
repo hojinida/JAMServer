@@ -14,24 +14,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import main.java.core.ConnectionManager;
 
-public class AcceptorGroup implements Closeable {
+public class ConnectionAcceptor implements Closeable {
   private static final int MAX_ACCEPTS_PER_LOOP = 64;
   private static final int BACKLOG = 1024;
   private static final int RECEIVE_BUFFER_SIZE = 65536;
   private static final AtomicLong WORKER_COUNTER = new AtomicLong(0);
 
   private final InetSocketAddress listenAddress;
-  private final WorkerSelector workerSelector;
+  private final EventProcessor eventProcessor;
   private final ServerSocketChannel[] serverChannels;
   private final Selector[] selectors;
   private final ExecutorService executor;
   private final int size;
   private volatile boolean started = false;
 
-  public AcceptorGroup(int size, InetSocketAddress listenAddress, WorkerSelector workerSelector) throws IOException {
+  public ConnectionAcceptor(int size, InetSocketAddress listenAddress, EventProcessor eventProcessor) throws IOException {
     this.size = size;
     this.listenAddress = listenAddress;
-    this.workerSelector = workerSelector;
+    this.eventProcessor = eventProcessor;
     this.serverChannels = new ServerSocketChannel[size];
     this.selectors = new Selector[size];
     this.executor = Executors.newFixedThreadPool(size);
@@ -84,7 +84,7 @@ public class AcceptorGroup implements Closeable {
         }
       }
     } catch (Throwable t) {
-      t.printStackTrace();
+      // 무시
     }
   }
 
@@ -108,11 +108,9 @@ public class AcceptorGroup implements Closeable {
         client.setOption(StandardSocketOptions.TCP_NODELAY, true);
         client.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
 
-        int workerIndex = (int) (WORKER_COUNTER.getAndIncrement() % workerSelector.size());
-        workerSelector.register(client, workerIndex);
+        int processorIndex = (int) (WORKER_COUNTER.getAndIncrement() % eventProcessor.size());
+        eventProcessor.registerChannel(client, processorIndex);
         registered = true;
-      } catch (IOException e) {
-        throw e;
       } finally {
         if (!registered) {
           ConnectionManager.decrement();
@@ -121,16 +119,6 @@ public class AcceptorGroup implements Closeable {
           } catch (IOException ignored) {}
         }
       }
-    }
-  }
-
-  public int size() {
-    return size;
-  }
-
-  public void wakeup() {
-    for (Selector selector : selectors) {
-      selector.wakeup();
     }
   }
 
@@ -143,7 +131,7 @@ public class AcceptorGroup implements Closeable {
         selector.wakeup();
         selector.close();
       } catch (IOException e) {
-        // Ignore
+        // 무시
       }
     }
 
@@ -151,7 +139,7 @@ public class AcceptorGroup implements Closeable {
       try {
         channel.close();
       } catch (IOException e) {
-        // Ignore
+        // 무시
       }
     }
   }

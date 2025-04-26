@@ -2,28 +2,41 @@ package main.java.bootstrap;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import main.java.transport.AcceptorGroup;
-import main.java.transport.WorkerSelector;
+import main.java.transport.ChannelInitializer;
+import main.java.transport.ConnectionAcceptor;
+import main.java.transport.EventProcessor;
 
 public class JamServer implements AutoCloseable {
-  private final AcceptorGroup acceptSelector;
-  private final WorkerSelector workerSelector;
+  private final ConnectionAcceptor connectionAcceptor;
+  private final EventProcessor eventProcessor;
 
   public JamServer(int port) throws IOException {
     int nCores = Runtime.getRuntime().availableProcessors();
     InetSocketAddress address = new InetSocketAddress(port);
 
-    this.workerSelector = new WorkerSelector(nCores * 2);
-    this.workerSelector.start();
+    ChannelInitializer initializer = new ChannelInitializer();
 
-    this.acceptSelector = new AcceptorGroup(2, address, workerSelector);
-    this.acceptSelector.start();
+    this.eventProcessor = new EventProcessor(nCores * 2, initializer);
+    this.eventProcessor.start();
+
+    this.connectionAcceptor = new ConnectionAcceptor(2, address, eventProcessor);
+    this.connectionAcceptor.start();
+
+    System.out.println("Server started on port " + port);
+    System.out.println("Processors: " + nCores + ", Event threads: " + (nCores * 2));
   }
 
   @Override
   public void close() throws IOException {
-    acceptSelector.close();
-    workerSelector.close();
+    System.out.println("Shutting down server...");
+
+    if (connectionAcceptor != null) {
+      connectionAcceptor.close();
+    }
+
+    if (eventProcessor != null) {
+      eventProcessor.close();
+    }
   }
 
   public static void main(String[] args) throws IOException {
