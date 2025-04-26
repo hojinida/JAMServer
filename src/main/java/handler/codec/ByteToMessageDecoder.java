@@ -1,7 +1,9 @@
-package main.java.message;
+package main.java.handler.codec;
 
 import main.java.channel.ChannelHandler;
 import main.java.channel.ChannelHandlerContext;
+import main.java.message.Message;
+import main.java.message.MessageParser;
 
 public class ByteToMessageDecoder extends ChannelHandler {
   protected final MessageParser parser;

@@ -21,7 +21,6 @@ public class Channel implements Closeable {
     this.socketChannel = socketChannel;
     this.selectionKey = selectionKey;
 
-    // 파이프라인 생성
     this.pipeline = new ChannelPipeline(this);
   }
 
@@ -39,25 +38,6 @@ public class Channel implements Closeable {
 
   public int read(ByteBuffer buffer) throws IOException {
     return socketChannel.read(buffer);
-  }
-
-  public boolean write(ByteBuffer buffer) throws IOException {
-    socketChannel.write(buffer);
-    return !buffer.hasRemaining();
-  }
-
-  public void setWriteInterest(boolean interested) {
-    int ops = selectionKey.interestOps();
-    if (interested) {
-      ops |= SelectionKey.OP_WRITE;
-    } else {
-      ops &= ~SelectionKey.OP_WRITE;
-    }
-    selectionKey.interestOps(ops);
-  }
-
-  public boolean isActive() {
-    return active;
   }
 
   public void activate() throws Exception {
@@ -82,13 +62,10 @@ public class Channel implements Closeable {
       System.err.println("Error during channel deactivation: " + e.getMessage());
     }
 
-    // 선택 키 취소
     selectionKey.cancel();
 
-    // 소켓 채널 닫기
     socketChannel.close();
 
-    // 연결 수 감소
     ConnectionManager.decrement();
   }
 }

@@ -116,7 +116,7 @@ public class EventProcessor implements Closeable {
         }
 
         if (key.isWritable()) {
-          processWrite(channel);
+          // 미구현
         }
       } catch (Exception e) {
         System.err.println("Error processing key: " + e.getMessage());
@@ -146,12 +146,6 @@ public class EventProcessor implements Closeable {
       BufferPool.getInstance().release(readBuffer);
     }
   }
-
-  private void processWrite(Channel channel) throws Exception {
-    ChannelPipeline pipeline = channel.pipeline();
-    pipeline.flushPendingWrites();
-  }
-
   private void closeChannel(SelectionKey key) {
     try {
       Channel channel = (Channel) key.attachment();
