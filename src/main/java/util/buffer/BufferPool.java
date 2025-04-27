@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 import main.java.util.BufferTimeoutException;
 
 public class BufferPool {
-  private static final int BUFFER_SIZE = 36;
+  private static final int BUFFER_SIZE = 256;
 
   private static final int POOL_SIZE = 30000;
 
@@ -43,7 +43,7 @@ public class BufferPool {
     return buffer;
   }
 
-  public void release(ByteBuffer buffer) throws InterruptedException {
+  public void release(ByteBuffer buffer){
     if (buffer == null) {
       return;
     }
