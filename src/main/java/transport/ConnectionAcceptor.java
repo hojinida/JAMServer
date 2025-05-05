@@ -12,7 +12,7 @@ import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
-import main.java.core.ConnectionManager;
+import main.java.util.ConnectionManager;
 
 public class ConnectionAcceptor implements Closeable {
   private static final int MAX_ACCEPTS_PER_LOOP = 64;
@@ -73,7 +73,7 @@ public class ConnectionAcceptor implements Closeable {
     Selector selector = selectors[index];
     try {
       while (!Thread.currentThread().isInterrupted()) {
-        selector.select();
+        selector.select(100);
         Iterator<SelectionKey> it = selector.selectedKeys().iterator();
         while (it.hasNext()) {
           SelectionKey key = it.next();

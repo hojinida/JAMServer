@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import main.java.core.ConnectionManager;
+import main.java.util.ConnectionManager;
 
 public class Channel implements Closeable {
   private final SocketChannel socketChannel;

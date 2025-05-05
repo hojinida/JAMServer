@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import main.java.channel.Channel;
-import main.java.core.ConnectionManager;
+import main.java.util.ConnectionManager;
 import main.java.util.buffer.BufferPool;
 
 public class EventProcessor implements Closeable {
@@ -47,7 +47,7 @@ public class EventProcessor implements Closeable {
     Selector selector = selectors[index];
     try {
       while (!Thread.currentThread().isInterrupted()) {
-        selector.select();
+        selector.select(100);
         registerPendingChannels(index);
         processSelectedKeys(index);
       }
