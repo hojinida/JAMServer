@@ -76,6 +76,13 @@ public class ChannelPipeline {
     return this;
   }
 
+  public ChannelPipeline fireChannelWritable() throws Exception {
+    if (head != null) {
+      head.handler().channelWritable(head);
+    }
+    return this;
+  }
+
   public ChannelPipeline fireExceptionCaught(Throwable cause) throws Exception {
     if (head != null) {
       head.handler().exceptionCaught(head, cause);

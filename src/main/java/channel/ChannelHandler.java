@@ -21,4 +21,12 @@ public class ChannelHandler {
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
     ctx.fireExceptionCaught(cause);
   }
+
+  public void write(ChannelHandlerContext ctx, Object msg) throws Exception {
+    ctx.write(msg);
+  }
+
+  public void channelWritable(ChannelHandlerContext ctx) throws Exception {
+    ctx.fireChannelWritable();
+  }
 }

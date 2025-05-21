@@ -36,8 +36,13 @@ public class Channel implements Closeable {
     return pipeline;
   }
 
+
   public int read(ByteBuffer buffer) throws IOException {
     return socketChannel.read(buffer);
+  }
+
+  public int write(ByteBuffer buffer) throws IOException {
+    return socketChannel.write(buffer);
   }
 
   public void activate() throws Exception {

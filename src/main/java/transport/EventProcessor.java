@@ -13,25 +13,28 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import main.java.channel.Channel;
 import main.java.util.ConnectionManager;
+import main.java.util.TaskQueue;
 import main.java.util.buffer.BufferPool;
 
 public class EventProcessor implements Closeable {
-  private final Queue<SocketChannel>[] pendingChannels;
+  private final ConcurrentLinkedQueue[] pendingChannels;
   private final Selector[] selectors;
+  private final TaskQueue[] taskQueues;
   private final ExecutorService executor;
   private final int size;
   private final ChannelInitializer channelInitializer;
 
-  @SuppressWarnings("unchecked")
   public EventProcessor(int size, ChannelInitializer channelInitializer) throws IOException {
     this.size = size;
     this.selectors = new Selector[size];
     this.executor = Executors.newFixedThreadPool(size);
     this.pendingChannels = new ConcurrentLinkedQueue[size];
+    this.taskQueues = new TaskQueue[size];
     this.channelInitializer = channelInitializer;
 
     for (int i = 0; i < size; i++) {
       this.selectors[i] = Selector.open();
+      this.taskQueues[i] = new TaskQueue();
       this.pendingChannels[i] = new ConcurrentLinkedQueue<>();
     }
   }
@@ -45,11 +48,19 @@ public class EventProcessor implements Closeable {
 
   private void run(int index) {
     Selector selector = selectors[index];
+    TaskQueue taskQueue = taskQueues[index];
     try {
       while (!Thread.currentThread().isInterrupted()) {
-        selector.select(100);
+        if (taskQueue.isEmpty()) {
+          selector.select(100);
+        } else {
+          selector.selectNow();
+        }
+
         registerPendingChannels(index);
         processSelectedKeys(index);
+
+        taskQueue.executeTasks(10);
       }
     } catch (IOException e) {
       System.err.println("Error in event processor #" + index + ": " + e.getMessage());
@@ -115,13 +126,26 @@ public class EventProcessor implements Closeable {
         }
 
         if (key.isWritable()) {
-          // 미구현
+          processWrite(channel);
         }
       } catch (Exception e) {
         System.err.println("Error processing key: " + e.getMessage());
         closeChannel(key);
       }
     }
+  }
+
+  public void execute(int processorIndex, Runnable task) {
+    if (processorIndex < 0 || processorIndex >= size) {
+      throw new IllegalArgumentException("Invalid processor index: " + processorIndex);
+    }
+
+    taskQueues[processorIndex].add(task);
+    selectors[processorIndex].wakeup();
+  }
+
+  private void processWrite(Channel channel) throws Exception {
+    channel.pipeline().fireChannelWritable();
   }
 
   private void processRead(Channel channel) throws Exception {
@@ -145,6 +169,7 @@ public class EventProcessor implements Closeable {
       BufferPool.getInstance().release(readBuffer);
     }
   }
+
   private void closeChannel(SelectionKey key) {
     try {
       Channel channel = (Channel) key.attachment();
