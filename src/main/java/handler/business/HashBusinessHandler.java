@@ -12,10 +12,8 @@ import main.java.util.business.BusinessExecutor;
 
 public class HashBusinessHandler extends ChannelHandler {
 
-  // MessageDigest는 스레드 안전하지 않으므로 동기화 필요
   private static final MessageDigest SHA256_DIGEST;
 
-  // 입력 데이터 검증을 위한 제한값들
   private static final int MAX_ITERATIONS = 1_000_000;  // 최대 반복 횟수
   private static final int MAX_DATA_LENGTH = 1024;      // 최대 데이터 길이 (바이트)
 
@@ -29,12 +27,6 @@ public class HashBusinessHandler extends ChannelHandler {
     }
   }
 
-  /**
-   * HashBusinessHandler를 생성합니다.
-   *
-   * @param businessExecutor 비즈니스 로직 실행을 위한 스레드 풀
-   * @throws IllegalArgumentException businessExecutor가 null인 경우
-   */
   public HashBusinessHandler(BusinessExecutor businessExecutor) {
     if (businessExecutor == null) {
       throw new IllegalArgumentException("BusinessExecutor cannot be null");
