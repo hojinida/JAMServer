@@ -14,8 +14,8 @@ public class HashBusinessHandler extends ChannelHandler {
 
   private static final MessageDigest SHA256_DIGEST;
 
-  private static final int MAX_ITERATIONS = 1_000_000;  // 최대 반복 횟수
-  private static final int MAX_DATA_LENGTH = 1024;      // 최대 데이터 길이 (바이트)
+  private static final int MAX_ITERATIONS = 100;
+  private static final int MAX_DATA_LENGTH = 128;
 
   private final BusinessExecutor businessExecutor;
 

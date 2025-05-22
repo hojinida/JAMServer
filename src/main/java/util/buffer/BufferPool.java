@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 import main.java.util.BufferTimeoutException;
 
 public class BufferPool {
-  private static final int BUFFER_SIZE = 256;
+  private static final int BUFFER_SIZE = 1024;
 
   private static final int POOL_SIZE = 30000;
 

@@ -5,16 +5,19 @@ import java.net.InetSocketAddress;
 import main.java.transport.ChannelInitializer;
 import main.java.transport.ConnectionAcceptor;
 import main.java.transport.EventProcessor;
+import main.java.util.business.BusinessExecutor;
 
 public class JamServer implements AutoCloseable {
   private final ConnectionAcceptor connectionAcceptor;
   private final EventProcessor eventProcessor;
+  private final BusinessExecutor businessExecutor;
 
   public JamServer(int port) throws IOException {
     int nCores = Runtime.getRuntime().availableProcessors();
     InetSocketAddress address = new InetSocketAddress(port);
 
-    ChannelInitializer initializer = new ChannelInitializer();
+    this.businessExecutor = new BusinessExecutor();
+    ChannelInitializer initializer = new ChannelInitializer(businessExecutor);
 
     this.eventProcessor = new EventProcessor(nCores * 2, initializer);
     this.eventProcessor.start();

@@ -5,7 +5,7 @@ import java.nio.ByteBuffer;
 public class MessageDecoder {
 
   private static final int HEADER_SIZE = 6;
-  private static final int MAX_PAYLOAD_SIZE = 30;
+  private static final int MAX_PAYLOAD_SIZE = 256;
 
   private MessageDecoder() {
   }
