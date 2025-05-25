@@ -14,7 +14,6 @@ import java.util.concurrent.Executors;
 import main.java.channel.Channel;
 import main.java.util.ConnectionManager;
 import main.java.util.TaskQueue;
-import main.java.util.buffer.BufferPool;
 
 public class EventProcessor implements Closeable {
   private final ConcurrentLinkedQueue[] pendingChannels;
@@ -44,6 +43,10 @@ public class EventProcessor implements Closeable {
       final int index = i;
       executor.execute(() -> run(index));
     }
+  }
+
+  public int size() {
+    return size;
   }
 
   private void run(int index) {
@@ -87,11 +90,8 @@ public class EventProcessor implements Closeable {
       try {
         SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
 
-        Channel channel = new Channel(socketChannel, key);
-
+        Channel channel = channelInitializer.createChannel(socketChannel, key);
         key.attach(channel);
-
-        channelInitializer.initChannel(channel);
 
         channel.activate();
       } catch (Exception e) {
@@ -145,29 +145,11 @@ public class EventProcessor implements Closeable {
   }
 
   private void processWrite(Channel channel) throws Exception {
-    channel.pipeline().fireChannelWritable();
+    channel.handleWrite();
   }
 
   private void processRead(Channel channel) throws Exception {
-    ByteBuffer readBuffer = BufferPool.getInstance().acquire();
-
-    try {
-      int bytesRead = channel.read(readBuffer);
-
-      if (bytesRead == -1) {
-        closeChannel(channel.selectionKey());
-        return;
-      }
-
-      if (bytesRead > 0) {
-        readBuffer.flip();
-
-        channel.pipeline().fireChannelRead(readBuffer);
-        channel.pipeline().fireChannelReadComplete();
-      }
-    } finally {
-      BufferPool.getInstance().release(readBuffer);
-    }
+    channel.handleRead();
   }
 
   private void closeChannel(SelectionKey key) {
@@ -185,10 +167,6 @@ public class EventProcessor implements Closeable {
     } catch (Exception e) {
       System.err.println("Error closing channel: " + e.getMessage());
     }
-  }
-
-  public int size() {
-    return size;
   }
 
   @Override

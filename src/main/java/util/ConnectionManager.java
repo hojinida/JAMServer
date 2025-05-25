@@ -21,9 +21,12 @@ public final class ConnectionManager {
   }
 
   public static void decrement() {
-    int v = CURRENT.decrementAndGet();
-    if (v < 0) {
-      CURRENT.set(0);
-    }
+    int current;
+    do {
+      current = CURRENT.get();
+      if (current <= 0) {
+        return;
+      }
+    } while (!CURRENT.compareAndSet(current, current - 1));
   }
 }

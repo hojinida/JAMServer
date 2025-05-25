@@ -6,44 +6,31 @@ import main.java.util.buffer.BufferPool;
 public class MessageEncoder {
   private static final int HEADER_SIZE = 6;
 
-  private MessageEncoder() {
+  // 싱글톤
+  private static final MessageEncoder INSTANCE = new MessageEncoder();
+
+  private MessageEncoder() {}
+
+  public static MessageEncoder getInstance() {
+    return INSTANCE;
   }
 
-  public static ByteBuffer encode(Message message) throws InterruptedException {
-    if (message == null) {
-      throw new IllegalArgumentException("Message cannot be null");
-    }
-
+  // Stateless 인코딩
+  public ByteBuffer encode(Message message) {
     ByteBuffer payload = message.getPayload();
     int length = payload.remaining();
 
-    ByteBuffer buffer = BufferPool.getInstance().acquire();
+    // 버퍼 할당 (여기서는 간단하게 일반 버퍼 사용)
+    ByteBuffer buffer = ByteBuffer.allocate(HEADER_SIZE + length);
 
-    try {
-      if (buffer.capacity() < length + HEADER_SIZE) {
-        throw new IllegalStateException("Buffer capacity insufficient: need " +
-            (length + HEADER_SIZE) + ", got " + buffer.capacity());
-      }
+    // 헤더 쓰기
+    buffer.putInt(length);
+    buffer.putShort(message.getTypeValue());
 
-      buffer.putInt(length);
-      buffer.putShort(message.getTypeValue());
+    // 페이로드 쓰기
+    buffer.put(payload);
 
-      buffer.put(payload);
-
-      buffer.flip();
-
-      return buffer;
-    } catch (Exception e) {
-      BufferPool.getInstance().release(buffer);
-      throw e;
-    }
-  }
-
-  public static int encodedSize(Message message) {
-    if (message == null) {
-      throw new IllegalArgumentException("Message cannot be null");
-    }
-
-    return HEADER_SIZE + message.getLength();
+    buffer.flip();
+    return buffer;
   }
 }

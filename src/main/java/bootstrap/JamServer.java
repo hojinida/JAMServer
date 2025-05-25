@@ -8,6 +8,7 @@ import main.java.transport.EventProcessor;
 import main.java.util.business.BusinessExecutor;
 
 public class JamServer implements AutoCloseable {
+
   private final ConnectionAcceptor connectionAcceptor;
   private final EventProcessor eventProcessor;
   private final BusinessExecutor businessExecutor;
@@ -25,20 +26,22 @@ public class JamServer implements AutoCloseable {
     this.connectionAcceptor = new ConnectionAcceptor(2, address, eventProcessor);
     this.connectionAcceptor.start();
 
-    System.out.println("Server started on port " + port);
+    System.out.println("서버 가동 port " + port);
     System.out.println("Processors: " + nCores + ", Event threads: " + (nCores * 2));
   }
 
   @Override
   public void close() throws IOException {
-    System.out.println("Shutting down server...");
-
     if (connectionAcceptor != null) {
       connectionAcceptor.close();
     }
 
     if (eventProcessor != null) {
       eventProcessor.close();
+    }
+
+    if (businessExecutor != null) {
+      businessExecutor.close();
     }
   }
 
