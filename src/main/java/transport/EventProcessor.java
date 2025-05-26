@@ -2,7 +2,6 @@ package main.java.transport;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
@@ -91,6 +90,7 @@ public class EventProcessor implements Closeable {
         SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
 
         Channel channel = channelInitializer.createChannel(socketChannel, key);
+        System.out.println("채널 생성");
         key.attach(channel);
 
         channel.activate();
@@ -122,10 +122,12 @@ public class EventProcessor implements Closeable {
         Channel channel = (Channel) key.attachment();
 
         if (key.isReadable()) {
+          System.out.println("Processing read for channel: " + channel);
           processRead(channel);
         }
 
         if (key.isWritable()) {
+          System.out.println("Processing write for channel: " + channel);
           processWrite(channel);
         }
       } catch (Exception e) {

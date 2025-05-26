@@ -17,92 +17,93 @@ import main.java.util.ConnectionManager;
 import main.java.util.buffer.BufferPool;
 
 public class Channel implements Closeable {
-
   private final SocketChannel socketChannel;
   private final SelectionKey selectionKey;
 
-  private final ByteBuffer accumulator = ByteBuffer.allocate(1024);
+  private final ByteBuffer readBuffer;
   private final Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
   private final AtomicBoolean active = new AtomicBoolean(false);
   private final AtomicBoolean writeInProgress = new AtomicBoolean(false);
 
-  // 공유 객체들 (참조만)
+  // 공유 객체들
   private final MessageDecoder decoder;
   private final MessageEncoder encoder;
   private final HashRequestHandler businessHandler;
 
-  public Channel(SocketChannel socketChannel, SelectionKey selectionKey, MessageDecoder decoder,
-      MessageEncoder encoder, HashRequestHandler businessHandler) {
+  public Channel(SocketChannel socketChannel, SelectionKey selectionKey,
+      MessageDecoder decoder, MessageEncoder encoder,
+      HashRequestHandler businessHandler) throws InterruptedException {
     this.socketChannel = socketChannel;
     this.selectionKey = selectionKey;
     this.decoder = decoder;
     this.encoder = encoder;
     this.businessHandler = businessHandler;
+
+    this.readBuffer = BufferPool.getInstance().acquire();
   }
 
   public void activate() {
     if (active.compareAndSet(false, true)) {
-      try {
-        socketChannel.configureBlocking(false);
-        selectionKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
-        ConnectionManager.tryIncrement();
-      } catch (IOException e) {
-        close();
-      }
+      // 단순 활성화
     }
   }
 
-  public void handleRead() throws IOException, InterruptedException {
-    ByteBuffer readBuffer = BufferPool.getInstance().acquire();
-    try {
-      int bytesRead = socketChannel.read(readBuffer);
+  public void handleRead() throws IOException {
+    int bytesRead = socketChannel.read(readBuffer);
 
-      if (bytesRead == -1) {
-        close();
-        return;
-      }
+    if (bytesRead == -1) {
+      close();
+      return;
+    }
 
-      if (bytesRead > 0) {
-        readBuffer.flip();
+    if (bytesRead > 0) {
+      readBuffer.flip();
 
-        List<Message> messages = decoder.decode(accumulator, readBuffer);
+      try {
+        List<Message> messages = decoder.decode(readBuffer);
 
         for (Message message : messages) {
           businessHandler.handle(message, this);
         }
+      } finally {
+        readBuffer.compact();
       }
-    } finally {
-      BufferPool.getInstance().release(readBuffer);
     }
   }
 
   public void write(Message message) {
-    ByteBuffer encoded = encoder.encode(message);
-    writeQueue.offer(encoded);
+    try {
+      ByteBuffer encoded = encoder.encode(message);
+      writeQueue.offer(encoded);
 
-    if (writeInProgress.compareAndSet(false, true)) {
-      try {
-        flush();
-      } catch (IOException e) {
-        close();
-      } finally {
-        writeInProgress.set(false);
+      if (writeInProgress.compareAndSet(false, true)) {
+        try {
+          flush();
+        } catch (IOException e) {
+          close();
+        } finally {
+          writeInProgress.set(false);
 
-        if (!writeQueue.isEmpty() && writeInProgress.compareAndSet(false, true)) {
-          try {
-            flush();
-          } catch (IOException e) {
-            close();
-          } finally {
-            writeInProgress.set(false);
+          if (!writeQueue.isEmpty()) {
+            selectionKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+            selectionKey.selector().wakeup();
           }
         }
       }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      close();
     }
   }
 
   public void handleWrite() throws IOException {
-    flush();
+    if (writeInProgress.compareAndSet(false, true)) {
+      try {
+        flush();
+      } finally {
+        writeInProgress.set(false);
+      }
+    }
   }
 
   private void flush() throws IOException {
@@ -116,6 +117,9 @@ public class Channel implements Closeable {
       }
 
       writeQueue.poll();
+      if (buffer.isDirect() && buffer.capacity() == 1024) {
+        BufferPool.getInstance().release(buffer);
+      }
     }
 
     if (writeQueue.isEmpty() && selectionKey.isValid()) {
@@ -123,6 +127,7 @@ public class Channel implements Closeable {
     }
   }
 
+  @Override
   public void close() {
     if (active.compareAndSet(true, false)) {
       try {
@@ -131,16 +136,19 @@ public class Channel implements Closeable {
       } catch (IOException e) {
         // 무시
       } finally {
+        // 버퍼 반환
+        BufferPool.getInstance().release(readBuffer);
+
+        // 쓰기 큐 버퍼들도 반환
+        ByteBuffer buffer;
+        while ((buffer = writeQueue.poll()) != null) {
+          if (buffer.isDirect()) {
+            BufferPool.getInstance().release(buffer);
+          }
+        }
+
         ConnectionManager.decrement();
       }
     }
-  }
-
-  public SocketChannel socketChannel() {
-    return socketChannel;
-  }
-
-  public SelectionKey selectionKey() {
-    return selectionKey;
   }
 }

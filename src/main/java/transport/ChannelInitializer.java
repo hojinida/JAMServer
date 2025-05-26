@@ -19,7 +19,8 @@ public class ChannelInitializer {
     this.businessHandler = new HashRequestHandler(businessExecutor);
   }
 
-  public Channel createChannel(SocketChannel socketChannel, SelectionKey selectionKey) {
+  public Channel createChannel(SocketChannel socketChannel, SelectionKey selectionKey)
+      throws InterruptedException {
     return new Channel(socketChannel, selectionKey, decoder, encoder, businessHandler);
   }
 }

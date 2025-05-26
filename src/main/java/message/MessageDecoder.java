@@ -5,62 +5,50 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MessageDecoder {
-
   private static final int HEADER_SIZE = 6;
   private static final int MAX_PAYLOAD_SIZE = 256;
 
-  // 싱글톤
   private static final MessageDecoder INSTANCE = new MessageDecoder();
-
-  private MessageDecoder() {}
 
   public static MessageDecoder getInstance() {
     return INSTANCE;
   }
 
-  // Stateless 디코딩 - accumulator는 외부에서 관리
-  public List<Message> decode(ByteBuffer accumulator, ByteBuffer input) {
+  // Zero-copy 디코딩 - 직접 버퍼에서 파싱
+  public List<Message> decode(ByteBuffer buffer) {
     List<Message> messages = new ArrayList<>();
 
-    // 새 데이터를 accumulator에 추가
-    accumulator.put(input);
-    accumulator.flip();
-
-    // 완전한 메시지들 추출
-    while (accumulator.remaining() >= HEADER_SIZE) {
-      int startPos = accumulator.position();
+    while (buffer.remaining() >= HEADER_SIZE) {
+      // 현재 위치 저장
+      int startPos = buffer.position();
 
       // 헤더 읽기
-      int length = accumulator.getInt();
-      short type = accumulator.getShort();
+      int length = buffer.getInt();
+      short type = buffer.getShort();
 
       // 유효성 검사
       if (length < 0 || length > MAX_PAYLOAD_SIZE) {
-        // 잘못된 메시지 - 연결 종료 필요
-        accumulator.clear();
+        buffer.position(buffer.limit());  // 버퍼 끝으로
         return messages;
       }
 
-      if (accumulator.remaining() < length) {
-        // 아직 전체 페이로드가 도착하지 않음
-        accumulator.position(startPos);
-        break;
+      // 페이로드 확인
+      if (buffer.remaining() < length) {
+        buffer.position(startPos);  // 되돌리기
+        return messages;
       }
 
-      // 페이로드 추출 (Zero-copy)
-      int payloadStart = accumulator.position();
-      int payloadEnd = payloadStart + length;
+      // Zero-copy: slice로 뷰 생성 (복사 없음!)
+      int oldLimit = buffer.limit();
+      buffer.limit(buffer.position() + length);
+      ByteBuffer payload = buffer.slice();
+      buffer.limit(oldLimit);
+      buffer.position(buffer.position() + length);
 
-      accumulator.limit(payloadEnd);
-      ByteBuffer payload = accumulator.slice();
-
-      accumulator.position(payloadEnd);
-      accumulator.limit(accumulator.capacity());
-
-      messages.add(new Message(type, payload));
+      // 읽기 전용 뷰로 메시지 생성
+      messages.add(new Message(type, payload.asReadOnlyBuffer()));
     }
 
-    accumulator.compact();
     return messages;
   }
 }

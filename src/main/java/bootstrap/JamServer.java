@@ -2,9 +2,11 @@ package main.java.bootstrap;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.concurrent.CountDownLatch;
 import main.java.transport.ChannelInitializer;
 import main.java.transport.ConnectionAcceptor;
 import main.java.transport.EventProcessor;
+import main.java.util.buffer.BufferPool;
 import main.java.util.business.BusinessExecutor;
 
 public class JamServer implements AutoCloseable {
@@ -16,6 +18,8 @@ public class JamServer implements AutoCloseable {
   public JamServer(int port) throws IOException {
     int nCores = Runtime.getRuntime().availableProcessors();
     InetSocketAddress address = new InetSocketAddress(port);
+
+    BufferPool.getInstance();
 
     this.businessExecutor = new BusinessExecutor();
     ChannelInitializer initializer = new ChannelInitializer(businessExecutor);
@@ -45,16 +49,22 @@ public class JamServer implements AutoCloseable {
     }
   }
 
-  public static void main(String[] args) throws IOException {
+  public static void main(String[] args) throws IOException, InterruptedException {
     final int port = 8888;
     final JamServer server = new JamServer(port);
+
+    CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try {
         server.close();
       } catch (IOException e) {
         e.printStackTrace();
+      } finally {
+        shutdownLatch.countDown();
       }
     }));
+
+    shutdownLatch.await();
   }
 }

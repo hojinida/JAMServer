@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import main.java.channel.Channel;
 import main.java.message.Message;
 import main.java.message.MessageType;
+import main.java.util.buffer.BufferPool;
 import main.java.util.business.BusinessExecutor;
 
 public class HashRequestHandler {
@@ -59,10 +60,8 @@ public class HashRequestHandler {
         && dataLength <= MAX_DATA_LENGTH && dataLength <= remaining;
   }
 
-  private void executeHashCalculation(Channel channel, long requestId, int iterations,
-      byte[] data) {
+  private void executeHashCalculation(Channel channel, long requestId, int iterations, byte[] data) {
     try {
-      // 해시 계산 (스레드별 MessageDigest 사용 - 락 없음!)
       MessageDigest digest = digestPool.get();
       byte[] result = data;
 
@@ -71,16 +70,19 @@ public class HashRequestHandler {
         result = digest.digest(result);
       }
 
-      ByteBuffer responsePayload = ByteBuffer.allocate(48);
-      responsePayload.putLong(requestId);
-      responsePayload.putInt(iterations);
-      responsePayload.putInt(32);
-      responsePayload.put(result);
-      responsePayload.flip();
+      // BufferPool에서 응답용 버퍼 할당
+      ByteBuffer responseBuffer = BufferPool.getInstance().acquire();
+      responseBuffer.clear();
+      responseBuffer.putLong(requestId);
+      responseBuffer.putInt(iterations);
+      responseBuffer.putInt(32);
+      responseBuffer.put(result);
+      responseBuffer.flip();
 
-      Message response = new Message(MessageType.HASH_RESPONSE, responsePayload);
-
+      Message response = new Message(MessageType.HASH_RESPONSE, responseBuffer);
       channel.write(response);
+
+      // 버퍼는 Channel.write()에서 관리됨
 
     } catch (Exception e) {
       channel.close();
