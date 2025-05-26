@@ -11,24 +11,32 @@ public class MessageEncoder {
     return INSTANCE;
   }
 
-  // BufferPool에서 버퍼 할당
+  /**
+   * 기존 버퍼풀 사용 (하위 호환성)
+   */
   public ByteBuffer encode(Message message) throws InterruptedException {
+    // 기본적으로 응답 버퍼 사용
+    return encodeWithResponseBuffer(message);
+  }
+
+  /**
+   * 응답 전용 작은 버퍼 사용 (64바이트)
+   */
+  public ByteBuffer encodeWithResponseBuffer(Message message) throws InterruptedException {
     ByteBuffer payload = message.getPayload();
     int totalSize = HEADER_SIZE + payload.remaining();
 
-    // BufferPool에서 버퍼 획득
-    ByteBuffer buffer = BufferPool.getInstance().acquire();
-
-    // 버퍼가 너무 작으면 일반 버퍼 사용 (큰 메시지용)
-    if (buffer.capacity() < totalSize) {
-      BufferPool.getInstance().release(buffer);
-      buffer = ByteBuffer.allocateDirect(totalSize);
+    // 작은 응답 버퍼 사용 (64바이트면 충분)
+    if (totalSize > 64) {
+      throw new IllegalArgumentException("Response too large for response buffer: " + totalSize + " bytes");
     }
 
+    ByteBuffer buffer = BufferPool.getInstance().acquireResponseBuffer();
+
     buffer.clear();
-    buffer.putInt(payload.remaining());
-    buffer.putShort(message.getTypeValue());
-    buffer.put(payload);
+    buffer.putInt(payload.remaining());      // 4바이트: payload 길이
+    buffer.putShort(message.getTypeValue()); // 2바이트: 메시지 타입
+    buffer.put(payload);                     // 페이로드 (해시 응답의 경우 48바이트)
     buffer.flip();
 
     return buffer;

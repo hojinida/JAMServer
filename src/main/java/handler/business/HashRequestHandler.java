@@ -12,10 +12,10 @@ public class HashRequestHandler {
 
   private static final int MAX_ITERATIONS = 100;
   private static final int MAX_DATA_LENGTH = 128;
+  private static final int HASH_RESULT_SIZE = 32; // SHA-256
 
   private final BusinessExecutor businessExecutor;
 
-  // ThreadLocal로 스레드별 MessageDigest
   private final ThreadLocal<MessageDigest> digestPool = ThreadLocal.withInitial(() -> {
     try {
       return MessageDigest.getInstance("SHA-256");
@@ -34,7 +34,6 @@ public class HashRequestHandler {
     }
 
     ByteBuffer payload = message.getPayload();
-
     if (payload.remaining() < 16) {
       channel.close();
       return;
@@ -52,40 +51,68 @@ public class HashRequestHandler {
     byte[] data = new byte[dataLength];
     payload.get(data);
 
+    // 비동기 실행
     businessExecutor.submit(() -> executeHashCalculation(channel, requestId, iterations, data));
   }
 
   private boolean isValidRequest(long requestId, int iterations, int dataLength, int remaining) {
-    return requestId > 0 && iterations >= 1 && iterations <= MAX_ITERATIONS && dataLength >= 0
-        && dataLength <= MAX_DATA_LENGTH && dataLength <= remaining;
+    return requestId > 0
+        && iterations >= 1
+        && iterations <= MAX_ITERATIONS
+        && dataLength >= 0
+        && dataLength <= MAX_DATA_LENGTH
+        && dataLength <= remaining;
   }
 
   private void executeHashCalculation(Channel channel, long requestId, int iterations, byte[] data) {
+    ByteBuffer responseBuffer = null;
+
     try {
+      if (!channel.isActive()) {
+        return;
+      }
+
       MessageDigest digest = digestPool.get();
       byte[] result = data;
 
+      // 해시 계산
       for (int i = 0; i < iterations; i++) {
         digest.reset();
         result = digest.digest(result);
+
+        if (iterations > 50 && i % 25 == 0 && !channel.isActive()) {
+          return;
+        }
       }
 
-      // BufferPool에서 응답용 버퍼 할당
-      ByteBuffer responseBuffer = BufferPool.getInstance().acquire();
+      if (!channel.isActive()) {
+        return;
+      }
+
+      // 작은 응답 버퍼 사용 (64바이트)
+      responseBuffer = BufferPool.getInstance().acquireResponseBuffer();
+
       responseBuffer.clear();
-      responseBuffer.putLong(requestId);
-      responseBuffer.putInt(iterations);
-      responseBuffer.putInt(32);
-      responseBuffer.put(result);
-      responseBuffer.flip();
+      responseBuffer.putLong(requestId);           // 8바이트
+      responseBuffer.putInt(iterations);           // 4바이트
+      responseBuffer.putInt(HASH_RESULT_SIZE);     // 4바이트
+      responseBuffer.put(result, 0, HASH_RESULT_SIZE); // 32바이트
+      responseBuffer.flip();                       // 총 48바이트 + 헤더 6바이트 = 54바이트
 
       Message response = new Message(MessageType.HASH_RESPONSE, responseBuffer);
       channel.write(response);
 
-      // 버퍼는 Channel.write()에서 관리됨
+      responseBuffer = null; // 채널에서 관리
 
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      if (responseBuffer != null) {
+        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
+      }
     } catch (Exception e) {
-      channel.close();
+      if (responseBuffer != null) {
+        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
+      }
     }
   }
 }

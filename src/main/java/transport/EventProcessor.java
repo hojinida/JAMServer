@@ -51,23 +51,32 @@ public class EventProcessor implements Closeable {
   private void run(int index) {
     Selector selector = selectors[index];
     TaskQueue taskQueue = taskQueues[index];
+
+    System.out.println("EventProcessor #" + index + " started");
+
     try {
       while (!Thread.currentThread().isInterrupted()) {
-        if (taskQueue.isEmpty()) {
-          selector.select(100);
-        } else {
-          selector.selectNow();
+        try {
+          if (taskQueue.isEmpty()) {
+            selector.select(100);
+          } else {
+            selector.selectNow();
+          }
+
+          registerPendingChannels(index);
+          processSelectedKeys(index);
+          taskQueue.executeTasks(10);
+
+        } catch (IOException e) {
+          System.err.println("IOException in event processor #" + index + ": " + e.getMessage());
+          e.printStackTrace();
+        } catch (Exception e) {
+          System.err.println("Unexpected error in event processor #" + index + ": " + e.getMessage());
+          e.printStackTrace();
         }
-
-        registerPendingChannels(index);
-        processSelectedKeys(index);
-
-        taskQueue.executeTasks(10);
       }
-    } catch (IOException e) {
-      System.err.println("Error in event processor #" + index + ": " + e.getMessage());
-    } catch (Exception e) {
-      System.err.println("Unexpected error in event processor #" + index + ": " + e.getMessage());
+    } finally {
+      System.out.println("EventProcessor #" + index + " terminated");
     }
   }
 
@@ -78,6 +87,7 @@ public class EventProcessor implements Closeable {
 
     pendingChannels[processorIndex].add(channel);
     selectors[processorIndex].wakeup();
+    System.out.println("Channel queued for registration on processor #" + processorIndex);
   }
 
   private void registerPendingChannels(int index) throws IOException {
@@ -88,19 +98,20 @@ public class EventProcessor implements Closeable {
     while ((socketChannel = queue.poll()) != null) {
       try {
         SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
-
         Channel channel = channelInitializer.createChannel(socketChannel, key);
-        System.out.println("채널 생성");
-        key.attach(channel);
 
+        System.out.println("채널 생성 완료: " + channel);
+        key.attach(channel);
         channel.activate();
+
       } catch (Exception e) {
         System.err.println("Error registering channel: " + e.getMessage());
+        e.printStackTrace();
         try {
           socketChannel.close();
           ConnectionManager.decrement();
         } catch (IOException closeEx) {
-          // 무시
+          System.err.println("Error closing failed channel: " + closeEx.getMessage());
         }
       }
     }
@@ -116,22 +127,42 @@ public class EventProcessor implements Closeable {
 
       try {
         if (!key.isValid()) {
+          System.out.println("Invalid key detected, skipping");
           continue;
         }
 
         Channel channel = (Channel) key.attachment();
+        if (channel == null) {
+          System.err.println("Channel is null for key: " + key);
+          closeChannel(key);
+          continue;
+        }
 
         if (key.isReadable()) {
           System.out.println("Processing read for channel: " + channel);
-          processRead(channel);
+          try {
+            processRead(channel);
+          } catch (Exception e) {
+            System.err.println("Error in processRead: " + e.getMessage());
+            e.printStackTrace();
+            closeChannel(key);
+          }
         }
 
-        if (key.isWritable()) {
+        if (key.isValid() && key.isWritable()) {
           System.out.println("Processing write for channel: " + channel);
-          processWrite(channel);
+          try {
+            processWrite(channel);
+          } catch (Exception e) {
+            System.err.println("Error in processWrite: " + e.getMessage());
+            e.printStackTrace();
+            closeChannel(key);
+          }
         }
+
       } catch (Exception e) {
         System.err.println("Error processing key: " + e.getMessage());
+        e.printStackTrace();
         closeChannel(key);
       }
     }
@@ -147,19 +178,29 @@ public class EventProcessor implements Closeable {
   }
 
   private void processWrite(Channel channel) throws Exception {
-    channel.handleWrite();
+    if (channel != null) {
+      channel.handleWrite();
+    } else {
+      System.err.println("Cannot process write: channel is null");
+    }
   }
 
   private void processRead(Channel channel) throws Exception {
-    channel.handleRead();
+    if (channel != null) {
+      channel.handleRead();
+    } else {
+      System.err.println("Cannot process read: channel is null");
+    }
   }
 
   private void closeChannel(SelectionKey key) {
     try {
       Channel channel = (Channel) key.attachment();
       if (channel != null) {
+        System.out.println("Closing channel: " + channel);
         channel.close();
       } else {
+        System.out.println("Closing orphaned key");
         key.cancel();
         if (key.channel().isOpen()) {
           key.channel().close();
@@ -168,16 +209,19 @@ public class EventProcessor implements Closeable {
       }
     } catch (Exception e) {
       System.err.println("Error closing channel: " + e.getMessage());
+      e.printStackTrace();
     }
   }
 
   @Override
-  public void close(){
+  public void close() {
+    System.out.println("Shutting down EventProcessor...");
     executor.shutdown();
 
     for (int i = 0; i < size; i++) {
       Selector selector = selectors[i];
 
+      // 모든 채널 정리
       for (SelectionKey key : selector.keys()) {
         closeChannel(key);
       }
@@ -186,8 +230,10 @@ public class EventProcessor implements Closeable {
         selector.wakeup();
         selector.close();
       } catch (IOException e) {
-        // 무시
+        System.err.println("Error closing selector #" + i + ": " + e.getMessage());
       }
     }
+
+    System.out.println("EventProcessor shutdown completed");
   }
 }
