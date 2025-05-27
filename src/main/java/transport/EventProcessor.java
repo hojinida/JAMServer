@@ -97,7 +97,6 @@ public class EventProcessor implements Closeable {
     SocketChannel socketChannel;
     while ((socketChannel = queue.poll()) != null) {
       Channel channel = null;
-      boolean registered = false;
 
       try {
         SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
@@ -105,7 +104,6 @@ public class EventProcessor implements Closeable {
 
         key.attach(channel);
         channel.activate();
-        registered = true;
 
       } catch (Exception e) {
         System.err.println("Error registering channel: " + e.getMessage());
@@ -151,22 +149,18 @@ public class EventProcessor implements Closeable {
         }
 
         if (key.isReadable()) {
-          System.out.println("Processing read for channel: " + channel);
           try {
             processRead(channel);
           } catch (Exception e) {
-            System.err.println("Error in processRead: " + e.getMessage());
             e.printStackTrace();
             closeChannel(key);
           }
         }
 
         if (key.isValid() && key.isWritable()) {
-          System.out.println("Processing write for channel: " + channel);
           try {
             processWrite(channel);
           } catch (Exception e) {
-            System.err.println("Error in processWrite: " + e.getMessage());
             e.printStackTrace();
             closeChannel(key);
           }

@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class ConnectionManager {
   private static final AtomicInteger CURRENT = new AtomicInteger(0);
-  private static final int MAX = 10_000;
+  private static final int MAX = 30000;
 
   private ConnectionManager() { /* 인스턴스화 방지 */ }
 
@@ -21,12 +21,6 @@ public final class ConnectionManager {
   }
 
   public static void decrement() {
-    int current;
-    do {
-      current = CURRENT.get();
-      if (current <= 0) {
-        return;
-      }
-    } while (!CURRENT.compareAndSet(current, current - 1));
+    CURRENT.updateAndGet(current -> Math.max(0, current - 1));
   }
 }

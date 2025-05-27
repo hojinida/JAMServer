@@ -2,6 +2,7 @@ package main.java.handler.business;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import main.java.channel.Channel;
 import main.java.message.Message;
 import main.java.message.MessageType;
@@ -13,17 +14,8 @@ public class HashRequestHandler {
   private static final int MAX_ITERATIONS = 100;
   private static final int MAX_DATA_LENGTH = 128;
   private static final int HASH_RESULT_SIZE = 32; // SHA-256
-  private static final int HEADER_SIZE = 6; // 메시지 헤더 크기
 
   private final BusinessExecutor businessExecutor;
-
-  private final ThreadLocal<MessageDigest> digestPool = ThreadLocal.withInitial(() -> {
-    try {
-      return MessageDigest.getInstance("SHA-256");
-    } catch (Exception e) {
-      throw new RuntimeException("SHA-256 not available", e);
-    }
-  });
 
   public HashRequestHandler(BusinessExecutor businessExecutor) {
     this.businessExecutor = businessExecutor;
@@ -52,7 +44,6 @@ public class HashRequestHandler {
     byte[] data = new byte[dataLength];
     payload.get(data);
 
-    // 비동기 실행
     businessExecutor.submit(() -> executeHashCalculation(channel, requestId, iterations, data));
   }
 
@@ -65,21 +56,18 @@ public class HashRequestHandler {
         && dataLength <= remaining;
   }
 
-  /**
-   * 수정된 해시 계산 - 버퍼를 한 번만 할당하고 직접 인코딩
-   */
   private void executeHashCalculation(Channel channel, long requestId, int iterations, byte[] data) {
     ByteBuffer responseBuffer = null;
+    MessageDigest digest = null;
 
     try {
       if (!channel.isActive()) {
         return;
       }
 
-      MessageDigest digest = digestPool.get();
+      digest = MessageDigest.getInstance("SHA-256");
       byte[] result = data;
 
-      // 해시 계산
       for (int i = 0; i < iterations; i++) {
         digest.reset();
         result = digest.digest(result);
@@ -111,12 +99,18 @@ public class HashRequestHandler {
 
       responseBuffer = null;
 
+    } catch (NoSuchAlgorithmException e) {
+      System.err.println("Critical error: SHA-256 algorithm not available: " + e.getMessage());
+      if (responseBuffer != null) {
+        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       if (responseBuffer != null) {
         BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
       }
     } catch (Exception e) {
+      System.err.println("Unexpected error in hash calculation: " + e.getMessage());
       if (responseBuffer != null) {
         BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
       }
