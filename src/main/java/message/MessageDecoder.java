@@ -11,13 +11,15 @@ public class MessageDecoder {
 
   private static final MessageDecoder INSTANCE = new MessageDecoder();
 
-  private final List<Message> messageList = new ArrayList<>(4);
+  private static final ThreadLocal<List<Message>> MESSAGE_LIST =
+      ThreadLocal.withInitial(() -> new ArrayList<>(16));
 
   public static MessageDecoder getInstance() {
     return INSTANCE;
   }
 
   public List<Message> decode(ByteBuffer buffer) {
+    List<Message> messageList = MESSAGE_LIST.get();
     messageList.clear();
 
     while (buffer.remaining() >= HEADER_SIZE) {
