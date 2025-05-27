@@ -14,14 +14,6 @@ public class Message {
     this.payload = payload.asReadOnlyBuffer();
   }
 
-  public Message(MessageType type, ByteBuffer payload) {
-    this(type.getValue(), payload);
-  }
-
-  public int getLength() {
-    return payload.remaining();
-  }
-
   public short getTypeValue() {
     return type;
   }

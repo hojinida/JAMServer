@@ -34,7 +34,6 @@ public class Channel implements Closeable {
 
   // 공유 객체들
   private final MessageDecoder decoder;
-  private final MessageEncoder encoder;
   private final HashRequestHandler businessHandler;
 
   public Channel(SocketChannel socketChannel, SelectionKey selectionKey,
@@ -45,18 +44,12 @@ public class Channel implements Closeable {
     this.socketChannel = socketChannel;
     this.selectionKey = selectionKey;
     this.decoder = decoder;
-    this.encoder = encoder;
     this.businessHandler = businessHandler;
-
-    // 전용 Read 버퍼 할당 (채널 생명주기 동안 유지)
     this.dedicatedReadBuffer = BufferPool.getInstance().acquireReadBuffer();
-
-    System.out.println("Channel #" + channelId + " created with dedicated 1024-byte read buffer");
   }
 
   public void activate() {
     if (active.compareAndSet(false, true)) {
-      System.out.println("Channel #" + channelId + " activated");
     }
   }
 
@@ -72,7 +65,6 @@ public class Channel implements Closeable {
     int bytesRead = socketChannel.read(dedicatedReadBuffer);
 
     if (bytesRead == -1) {
-      System.out.println("Channel #" + channelId + " connection closed by peer");
       close();
       return;
     }
@@ -91,35 +83,37 @@ public class Channel implements Closeable {
         System.err.println("Channel #" + channelId + " error processing messages: " + e.getMessage());
         close();
       } finally {
-        dedicatedReadBuffer.compact(); // 남은 데이터를 버퍼 시작으로 이동
+        dedicatedReadBuffer.compact();
       }
     }
   }
 
-  /**
-   * 비동기 Write - 작은 응답 버퍼를 큐에 추가
-   */
-  public void write(Message message) {
+  public void writeDirectBuffer(ByteBuffer buffer) {
     if (!isActive()) {
+      if (buffer != null) {
+        BufferPool.getInstance().releaseResponseBuffer(buffer);
+      }
       return;
     }
 
     try {
-      // 작은 응답 버퍼 사용 (64바이트)
-      ByteBuffer encoded = encoder.encodeWithResponseBuffer(message);
-
-      writeQueue.offer(encoded);
-
-      // WRITE 이벤트 등록
-      if (writeRegistered.compareAndSet(false, true) && selectionKey.isValid()) {
-        int currentOps = selectionKey.interestOps();
-        selectionKey.interestOps(currentOps | SelectionKey.OP_WRITE);
-        selectionKey.selector().wakeup();
-      }
+      writeQueue.offer(buffer);
+      registerWriteInterest();
 
     } catch (Exception e) {
-      System.err.println("Channel #" + channelId + " error in write: " + e.getMessage());
+      System.err.println("Channel #" + channelId + " error in writeDirectBuffer: " + e.getMessage());
+      if (buffer != null) {
+        BufferPool.getInstance().releaseResponseBuffer(buffer);
+      }
       close();
+    }
+  }
+
+  private void registerWriteInterest() {
+    if (writeRegistered.compareAndSet(false, true) && selectionKey.isValid()) {
+      int currentOps = selectionKey.interestOps();
+      selectionKey.interestOps(currentOps | SelectionKey.OP_WRITE);
+      selectionKey.selector().wakeup();
     }
   }
 
@@ -127,31 +121,23 @@ public class Channel implements Closeable {
     if (!active.get()) {
       return;
     }
-
     flush();
   }
 
   private void flush() throws IOException {
-    int buffersProcessed = 0;
-
     ByteBuffer buffer;
     while ((buffer = writeQueue.peek()) != null) {
-      long written = socketChannel.write(buffer);
+      socketChannel.write(buffer);
 
       if (buffer.hasRemaining()) {
-        // 소켓 버퍼가 가득 참, 나중에 다시 시도
         return;
       }
 
-      // 버퍼 완전히 전송됨
       writeQueue.poll();
-      buffersProcessed++;
 
-      // 작은 응답 버퍼 반환
       BufferPool.getInstance().releaseResponseBuffer(buffer);
     }
 
-    // 모든 데이터 전송 완료
     if (writeQueue.isEmpty() && selectionKey.isValid() && writeRegistered.compareAndSet(true, false)) {
       int currentOps = selectionKey.interestOps();
       selectionKey.interestOps(currentOps & ~SelectionKey.OP_WRITE);
@@ -159,22 +145,8 @@ public class Channel implements Closeable {
   }
 
   @Override
-  public String toString() {
-    try {
-      return "Channel{id=" + channelId +
-          ", remote=" + socketChannel.getRemoteAddress() +
-          ", active=" + active.get() +
-          ", writeQueue=" + writeQueue.size() + "}";
-    } catch (IOException e) {
-      return "Channel{id=" + channelId + ", remote=unknown}";
-    }
-  }
-
-  @Override
   public void close() {
     if (active.compareAndSet(true, false)) {
-      System.out.println("Channel #" + channelId + " closing");
-
       try {
         if (selectionKey.isValid()) {
           selectionKey.cancel();
@@ -183,25 +155,16 @@ public class Channel implements Closeable {
       } catch (IOException e) {
         System.err.println("Channel #" + channelId + " error closing socket: " + e.getMessage());
       } finally {
-        // 전용 Read 버퍼 반환
         if (dedicatedReadBuffer != null) {
           BufferPool.getInstance().releaseReadBuffer(dedicatedReadBuffer);
         }
 
-        // Write 큐의 응답 버퍼들 반환
         ByteBuffer buffer;
-        int releasedCount = 0;
         while ((buffer = writeQueue.poll()) != null) {
           BufferPool.getInstance().releaseResponseBuffer(buffer);
-          releasedCount++;
-        }
-
-        if (releasedCount > 0) {
-          System.out.println("Channel #" + channelId + " released " + releasedCount + " pending response buffers");
         }
 
         ConnectionManager.decrement();
-        System.out.println("Channel #" + channelId + " closed and cleaned up");
       }
     }
   }

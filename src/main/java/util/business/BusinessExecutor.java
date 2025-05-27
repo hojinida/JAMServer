@@ -67,28 +67,13 @@ public class BusinessExecutor implements AutoCloseable {
     }
 
     shutdown = true;
-    System.out.println("Shutting down BusinessExecutor...");
-
     executorService.shutdown();
 
     try {
       if (!executorService.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS)) {
-        System.out.println("BusinessExecutor did not terminate gracefully within "
-            + shutdownTimeoutSeconds + " seconds, forcing shutdown...");
-
         executorService.shutdownNow();
-
-        if (!executorService.awaitTermination(FORCE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-          System.err.println("BusinessExecutor did not terminate after forced shutdown within "
-              + FORCE_SHUTDOWN_TIMEOUT_SECONDS + " seconds");
-        } else {
-          System.out.println("BusinessExecutor terminated after forced shutdown");
         }
-      } else {
-        System.out.println("BusinessExecutor shutdown completed gracefully");
-      }
     } catch (InterruptedException e) {
-      System.err.println("BusinessExecutor shutdown interrupted, forcing immediate shutdown...");
       executorService.shutdownNow();
       Thread.currentThread().interrupt();
     }

@@ -13,6 +13,7 @@ public class HashRequestHandler {
   private static final int MAX_ITERATIONS = 100;
   private static final int MAX_DATA_LENGTH = 128;
   private static final int HASH_RESULT_SIZE = 32; // SHA-256
+  private static final int HEADER_SIZE = 6; // 메시지 헤더 크기
 
   private final BusinessExecutor businessExecutor;
 
@@ -64,6 +65,9 @@ public class HashRequestHandler {
         && dataLength <= remaining;
   }
 
+  /**
+   * 수정된 해시 계산 - 버퍼를 한 번만 할당하고 직접 인코딩
+   */
   private void executeHashCalculation(Channel channel, long requestId, int iterations, byte[] data) {
     ByteBuffer responseBuffer = null;
 
@@ -89,20 +93,23 @@ public class HashRequestHandler {
         return;
       }
 
-      // 작은 응답 버퍼 사용 (64바이트)
       responseBuffer = BufferPool.getInstance().acquireResponseBuffer();
 
+      int payloadSize = 8 + 4 + 4 + HASH_RESULT_SIZE;
+
       responseBuffer.clear();
-      responseBuffer.putLong(requestId);           // 8바이트
-      responseBuffer.putInt(iterations);           // 4바이트
-      responseBuffer.putInt(HASH_RESULT_SIZE);     // 4바이트
-      responseBuffer.put(result, 0, HASH_RESULT_SIZE); // 32바이트
-      responseBuffer.flip();                       // 총 48바이트 + 헤더 6바이트 = 54바이트
+      responseBuffer.putInt(payloadSize);
+      responseBuffer.putShort(MessageType.HASH_RESPONSE.getValue());
 
-      Message response = new Message(MessageType.HASH_RESPONSE, responseBuffer);
-      channel.write(response);
+      responseBuffer.putLong(requestId);
+      responseBuffer.putInt(iterations);
+      responseBuffer.putInt(HASH_RESULT_SIZE);
+      responseBuffer.put(result, 0, HASH_RESULT_SIZE);
+      responseBuffer.flip();
 
-      responseBuffer = null; // 채널에서 관리
+      channel.writeDirectBuffer(responseBuffer);
+
+      responseBuffer = null;
 
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();

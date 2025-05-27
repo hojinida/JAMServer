@@ -36,12 +36,4 @@ public class BusinessThreadFactory implements ThreadFactory {
 
     return thread;
   }
-
-  public boolean isDaemon() {
-    return daemon;
-  }
-
-  public int getPriority() {
-    return priority;
-  }
 }

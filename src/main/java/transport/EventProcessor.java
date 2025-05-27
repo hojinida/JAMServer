@@ -96,22 +96,34 @@ public class EventProcessor implements Closeable {
 
     SocketChannel socketChannel;
     while ((socketChannel = queue.poll()) != null) {
+      Channel channel = null;
+      boolean registered = false;
+
       try {
         SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
-        Channel channel = channelInitializer.createChannel(socketChannel, key);
+        channel = channelInitializer.createChannel(socketChannel, key);
 
-        System.out.println("채널 생성 완료: " + channel);
         key.attach(channel);
         channel.activate();
+        registered = true;
 
       } catch (Exception e) {
         System.err.println("Error registering channel: " + e.getMessage());
         e.printStackTrace();
-        try {
-          socketChannel.close();
-          ConnectionManager.decrement();
-        } catch (IOException closeEx) {
-          System.err.println("Error closing failed channel: " + closeEx.getMessage());
+
+        if (channel != null) {
+          try {
+            channel.close();
+          } catch (Exception closeEx) {
+            System.err.println("Error closing partially created channel: " + closeEx.getMessage());
+          }
+        } else {
+          try {
+            socketChannel.close();
+            ConnectionManager.decrement();
+          } catch (IOException closeEx) {
+            System.err.println("Error closing failed socket: " + closeEx.getMessage());
+          }
         }
       }
     }
@@ -168,15 +180,6 @@ public class EventProcessor implements Closeable {
     }
   }
 
-  public void execute(int processorIndex, Runnable task) {
-    if (processorIndex < 0 || processorIndex >= size) {
-      throw new IllegalArgumentException("Invalid processor index: " + processorIndex);
-    }
-
-    taskQueues[processorIndex].add(task);
-    selectors[processorIndex].wakeup();
-  }
-
   private void processWrite(Channel channel) throws Exception {
     if (channel != null) {
       channel.handleWrite();
@@ -221,7 +224,6 @@ public class EventProcessor implements Closeable {
     for (int i = 0; i < size; i++) {
       Selector selector = selectors[i];
 
-      // 모든 채널 정리
       for (SelectionKey key : selector.keys()) {
         closeChannel(key);
       }
