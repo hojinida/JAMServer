@@ -65,22 +65,22 @@ public class NioEventLoop implements Closeable {
       try {
         executeTasks();
 
-        selector.select();
+        int selected = selector.select(ServerConfig.SELECT_TIMEOUT);
+
+        executeTasks();
 
         if (shutdown) {
           break;
         }
 
-        Set<SelectionKey> selectedKeys = selector.selectedKeys();
-        if (selectedKeys.isEmpty() && taskQueue.isEmpty()) {
-          continue;
-        }
-
-        Iterator<SelectionKey> it = selectedKeys.iterator();
-        while (it.hasNext()) {
-          SelectionKey key = it.next();
-          it.remove();
-          processKey(key);
+        if (selected > 0) {
+          Set<SelectionKey> selectedKeys = selector.selectedKeys();
+          Iterator<SelectionKey> it = selectedKeys.iterator();
+          while (it.hasNext()) {
+            SelectionKey key = it.next();
+            it.remove();
+            processKey(key);
+          }
         }
 
       } catch (ClosedSelectorException e) {
@@ -98,24 +98,32 @@ public class NioEventLoop implements Closeable {
 
   public void registerChannel(SocketChannel channel) {
     addTask(() -> {
-      NioChannel nioChannel = null;
       try {
-        channel.configureBlocking(false);
-        SelectionKey key = channel.register(selector, SelectionKey.OP_READ);
-        nioChannel = new NioChannel(channel, key, this, channelHandler, connectionCounter);
-        key.attach(nioChannel);
-      } catch (Exception e) {
-        System.err.println(
-            "Error registering channel in event loop #" + id + ": " + e.getMessage());
-        e.printStackTrace();
-        if (nioChannel != null) {
-          nioChannel.close();
-        } else {
+        if (connectionCounter.get() >= ServerConfig.MAX_CONNECTIONS) {
+          System.err.println(
+              "Connection rejected during registration (queued): Max connections reached.");
           try {
             channel.close();
           } catch (IOException ignored) {
           }
-          connectionCounter.decrementAndGet();
+          return;
+        }
+
+        channel.configureBlocking(false);
+        SelectionKey key = channel.register(selector, SelectionKey.OP_READ);
+        NioChannel nioChannel = new NioChannel(channel, key, this, channelHandler,
+            connectionCounter);
+        key.attach(nioChannel);
+
+        connectionCounter.incrementAndGet();
+
+      } catch (Exception e) {
+        System.err.println(
+            "Error registering channel in event loop #" + id + ": " + e.getMessage());
+        e.printStackTrace();
+        try {
+          channel.close();
+        } catch (IOException ignored) {
         }
       }
     });

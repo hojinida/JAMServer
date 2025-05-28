@@ -78,7 +78,7 @@ public class NioAcceptor implements Closeable {
 
   private void acceptConnections(SelectionKey key) {
     ServerSocketChannel server = (ServerSocketChannel) key.channel();
-    for (int i = 0; i < ServerConfig.MAX_ACCEPTS_PER_LOOP; i++) {
+    while (true) {
       SocketChannel client = null;
       try {
         client = server.accept();
@@ -91,7 +91,6 @@ public class NioAcceptor implements Closeable {
           client.close();
           continue;
         }
-        connectionCounter.incrementAndGet();
 
         client.configureBlocking(false);
         client.setOption(StandardSocketOptions.TCP_NODELAY, true);
@@ -114,9 +113,9 @@ public class NioAcceptor implements Closeable {
     if (client != null) {
       try {
         client.close();
-      } catch (IOException ignored) {
+      } catch (IOException e) {
+        System.err.println("Error closing client channel: " + e.getMessage());
       }
-      connectionCounter.decrementAndGet();
     }
   }
 
