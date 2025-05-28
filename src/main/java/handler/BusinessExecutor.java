@@ -1,16 +1,15 @@
-package main.java.util.business;
+package main.java.handler;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import main.java.util.NioThreadFactory;
 
 public class BusinessExecutor implements AutoCloseable {
 
   private static final int DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5;
 
-
   private final ExecutorService executorService;
-  private final BusinessThreadFactory threadFactory;
   private final int shutdownTimeoutSeconds;
   private volatile boolean shutdown = false;
 
@@ -32,19 +31,16 @@ public class BusinessExecutor implements AutoCloseable {
     }
 
     this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
-    this.threadFactory = new BusinessThreadFactory();
-    this.executorService = Executors.newFixedThreadPool(threadCount, threadFactory);
+    this.executorService = Executors.newFixedThreadPool(threadCount, new NioThreadFactory("business-pool"));
   }
 
   public void submit(Runnable task) {
     if (task == null) {
       throw new IllegalArgumentException("Task cannot be null");
     }
-
     if (shutdown) {
       throw new IllegalStateException("BusinessExecutor is already shutdown");
     }
-
     try {
       executorService.submit(task);
     } catch (Exception e) {
@@ -57,10 +53,8 @@ public class BusinessExecutor implements AutoCloseable {
     if (shutdown) {
       return;
     }
-
     shutdown = true;
     executorService.shutdown();
-
     try {
       if (!executorService.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS)) {
         executorService.shutdownNow();

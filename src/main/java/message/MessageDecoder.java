@@ -10,12 +10,13 @@ public class MessageDecoder {
   private static final int MAX_PAYLOAD_SIZE = 256;
   private static final MessageDecoder INSTANCE = new MessageDecoder();
 
+  private MessageDecoder() {}
+
   public static MessageDecoder getInstance() {
     return INSTANCE;
   }
 
   public static class DecodeException extends Exception {
-
     public DecodeException(String message) {
       super(message);
     }

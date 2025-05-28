@@ -1,63 +1,67 @@
-package main.java.bootstrap;
+package main.java.server;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import main.java.transport.ChannelInitializer;
-import main.java.transport.ConnectionAcceptor;
-import main.java.transport.EventProcessor;
-import main.java.util.buffer.BufferPool;
-import main.java.util.business.BusinessExecutor;
+import java.util.concurrent.atomic.AtomicLong;
+import main.java.channel.ChannelHandler; // ChannelHandler 사용
+import main.java.handler.BusinessExecutor;
+import main.java.handler.HashRequestHandler;
+import main.java.message.MessageDecoder;
 
 public class JamServer implements AutoCloseable {
 
-  private final ConnectionAcceptor connectionAcceptor;
-  private final EventProcessor eventProcessor;
+  private final NioAcceptor connectionAcceptor;
+  private final NioEventLoop[] eventLoops;
   private final BusinessExecutor businessExecutor;
   private volatile boolean running;
 
   private static final int DEFAULT_PORT = 8888;
-  private static final int ACCEPTOR_THREADS = 2;
   private static final long GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 10;
-
+  // ServerConfig.java는 나중에 추가하기로 했으므로 아직 없음
 
   public JamServer(int port) throws IOException {
     int nCores = Runtime.getRuntime().availableProcessors();
     InetSocketAddress address = new InetSocketAddress(port);
-
-    BufferPool.getInstance();
     this.running = true;
 
+    MessageDecoder decoder = MessageDecoder.getInstance();
     this.businessExecutor = new BusinessExecutor();
-    ChannelInitializer initializer = new ChannelInitializer(businessExecutor);
+    HashRequestHandler businessHandler = new HashRequestHandler(businessExecutor);
+    // ChannelHandler 생성 (디코더와 비즈니스 핸들러 주입)
+    ChannelHandler channelHandler = new ChannelHandler(decoder, businessHandler);
+    AtomicLong connectionCounter = new AtomicLong(0);
 
-    this.eventProcessor = new EventProcessor(nCores * 2, initializer);
-    this.eventProcessor.start();
+    int eventLoopSize = nCores;
+    this.eventLoops = new NioEventLoop[eventLoopSize];
+    for (int i = 0; i < eventLoopSize; i++) {
+      this.eventLoops[i] = new NioEventLoop(i, channelHandler, connectionCounter);
+      this.eventLoops[i].start();
+    }
 
-    this.connectionAcceptor = new ConnectionAcceptor(ACCEPTOR_THREADS, address, eventProcessor);
+    this.connectionAcceptor = new NioAcceptor(address, eventLoops, connectionCounter);
     this.connectionAcceptor.start();
 
-    System.out.println("JamServer started on port " + port);
+    System.out.println("JamServer started on port " + port + " with " + eventLoopSize + " event loops.");
   }
 
   @Override
   public void close() throws IOException {
-    if (!running) {
-      return;
-    }
-
+    if (!running) return;
     running = false;
     System.out.println("Server shutdown sequence initiated...");
 
     if (connectionAcceptor != null) {
-      System.out.println("Closing ConnectionAcceptor...");
+      System.out.println("Closing NioAcceptor...");
       connectionAcceptor.close();
     }
 
-    if (eventProcessor != null) {
-      System.out.println("Closing EventProcessor...");
-      eventProcessor.close();
+    if (eventLoops != null) {
+      System.out.println("Closing NioEventLoops...");
+      for (NioEventLoop loop : eventLoops) {
+        if (loop != null) loop.close();
+      }
     }
 
     if (businessExecutor != null) {
@@ -65,42 +69,29 @@ public class JamServer implements AutoCloseable {
       businessExecutor.close();
     }
 
-    System.out.println("Shutting down BufferPool...");
-    BufferPool.getInstance().shutdown();
-
     System.out.println("Server shutdown completed.");
   }
 
-
   public void shutdownGracefully(long timeout, TimeUnit unit) {
-    System.out.println("Attempting graceful shutdown (" + timeout + " " + unit.toString() + ")...");
+    System.out.println("Attempting graceful shutdown...");
     try {
       close();
     } catch (Exception e) {
       System.err.println("Error during graceful shutdown: " + e.getMessage());
       e.printStackTrace();
-      try {
-        if (running) {
-          close();
-        }
-      } catch (IOException ioException) {
-        System.err.println("Error during forced shutdown: " + ioException.getMessage());
-      }
     }
   }
 
   public static void main(String[] args) throws IOException, InterruptedException {
     final int port = DEFAULT_PORT;
     final JamServer server = new JamServer(port);
-
-    CountDownLatch shutdownLatch = new CountDownLatch(1);
+    final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try {
         System.out.println("Shutdown hook triggered.");
         server.shutdownGracefully(GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       } catch (Exception e) {
-        System.err.println("Error during shutdown hook execution: " + e.getMessage());
         e.printStackTrace();
       } finally {
         shutdownLatch.countDown();

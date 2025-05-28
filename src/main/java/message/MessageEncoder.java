@@ -1,12 +1,12 @@
 package main.java.message;
 
 import java.nio.ByteBuffer;
-import main.java.util.buffer.BufferPool;
 
 public class MessageEncoder {
 
   private static final int HEADER_SIZE = 6;
   private static final MessageEncoder INSTANCE = new MessageEncoder();
+  private static final int RESPONSE_BUFFER_CAPACITY = 64;
 
   private MessageEncoder() {
   }
@@ -20,13 +20,11 @@ public class MessageEncoder {
     int payloadSize = payload.remaining();
     int totalSize = HEADER_SIZE + payloadSize;
 
-    ByteBuffer buffer;
-    buffer = BufferPool.getInstance().acquireResponseBuffer();
+    ByteBuffer buffer = ByteBuffer.allocate(RESPONSE_BUFFER_CAPACITY);
 
     if (totalSize > buffer.capacity()) {
-      BufferPool.getInstance().releaseResponseBuffer(buffer);
       throw new IllegalArgumentException(
-          "Encoded message size (" + totalSize + ") exceeds response buffer capacity ("
+          "Encoded message size (" + totalSize + ") exceeds buffer capacity ("
               + buffer.capacity() + ").");
     }
 
