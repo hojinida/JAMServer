@@ -72,7 +72,7 @@ public class BusinessExecutor implements AutoCloseable {
     try {
       if (!executorService.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS)) {
         executorService.shutdownNow();
-        }
+      }
     } catch (InterruptedException e) {
       executorService.shutdownNow();
       Thread.currentThread().interrupt();

@@ -71,6 +71,7 @@ public class BufferPool {
     }
 
     buffer.clear();
+    readBuffers.offer(buffer);
   }
 
   public void shutdown() {

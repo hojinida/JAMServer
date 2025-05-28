@@ -95,7 +95,6 @@ public class ConnectionAcceptor implements Closeable {
       if (client == null) {
         break;
       }
-      System.out.println("연결수락 from " + client.getRemoteAddress());
 
       boolean acquired = ConnectionManager.tryIncrement();
       if (!acquired) {
