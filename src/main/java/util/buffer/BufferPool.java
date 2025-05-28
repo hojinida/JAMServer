@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class BufferPool {
+
   private static final int READ_BUFFER_SIZE = 1024;
   private static final int READ_POOL_SIZE = 30000;
 
@@ -26,13 +27,16 @@ public class BufferPool {
     for (int i = 0; i < RESPONSE_POOL_SIZE; i++) {
       responseBuffers.offer(ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE));
     }
+    System.out.println(
+        "BufferPool initialized: READ_POOL_SIZE=" + READ_POOL_SIZE + ", RESPONSE_POOL_SIZE="
+            + RESPONSE_POOL_SIZE);
   }
 
   public static BufferPool getInstance() {
     return INSTANCE;
   }
 
-  public ByteBuffer acquireReadBuffer() throws InterruptedException {
+  public ByteBuffer acquireReadBuffer() {
     ByteBuffer buffer = readBuffers.poll();
 
     if (buffer != null) {
@@ -40,11 +44,11 @@ public class BufferPool {
       return buffer;
     }
 
-    System.out.println("Read 버퍼 풀 부족 - 새 버퍼 할당");
+    System.out.println("Read buffer pool empty - Allocating new buffer.");
     return ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
   }
 
-  public ByteBuffer acquireResponseBuffer() throws InterruptedException {
+  public ByteBuffer acquireResponseBuffer() {
     ByteBuffer buffer = responseBuffers.poll();
 
     if (buffer != null) {
@@ -52,12 +56,13 @@ public class BufferPool {
       return buffer;
     }
 
-    System.out.println("Response 버퍼 풀 부족 - 새 버퍼 할당");
+    System.out.println("Response buffer pool empty - Allocating new buffer.");
     return ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE);
   }
 
   public void releaseReadBuffer(ByteBuffer buffer) {
     if (buffer == null || !buffer.isDirect() || buffer.capacity() != READ_BUFFER_SIZE) {
+      System.err.println("Invalid read buffer returned to pool. Discarding.");
       return;
     }
 
@@ -67,15 +72,18 @@ public class BufferPool {
 
   public void releaseResponseBuffer(ByteBuffer buffer) {
     if (buffer == null || !buffer.isDirect() || buffer.capacity() != RESPONSE_BUFFER_SIZE) {
+      System.err.println("Invalid response buffer returned to pool. Discarding.");
       return;
     }
 
     buffer.clear();
-    readBuffers.offer(buffer);
+    responseBuffers.offer(buffer);
   }
 
   public void shutdown() {
+    System.out.println("Shutting down BufferPool...");
     readBuffers.clear();
     responseBuffers.clear();
+    System.out.println("BufferPool shutdown completed.");
   }
 }

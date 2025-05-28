@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import main.java.util.ConnectionManager;
 
 public class ConnectionAcceptor implements Closeable {
+
   private static final int MAX_ACCEPTS_PER_LOOP = 64;
   private static final int BACKLOG = 1024;
   private static final int RECEIVE_BUFFER_SIZE = 65536;
@@ -28,7 +29,8 @@ public class ConnectionAcceptor implements Closeable {
   private final int size;
   private volatile boolean started = false;
 
-  public ConnectionAcceptor(int size, InetSocketAddress listenAddress, EventProcessor eventProcessor) throws IOException {
+  public ConnectionAcceptor(int size, InetSocketAddress listenAddress,
+      EventProcessor eventProcessor) throws IOException {
     this.size = size;
     this.listenAddress = listenAddress;
     this.eventProcessor = eventProcessor;
@@ -116,7 +118,8 @@ public class ConnectionAcceptor implements Closeable {
           ConnectionManager.decrement();
           try {
             client.close();
-          } catch (IOException ignored) {}
+          } catch (IOException ignored) {
+          }
         }
       }
     }

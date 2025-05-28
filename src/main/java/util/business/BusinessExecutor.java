@@ -5,12 +5,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class BusinessExecutor implements AutoCloseable {
+
   private static final int DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5;
-  private static final int FORCE_SHUTDOWN_TIMEOUT_SECONDS = 2;
+
 
   private final ExecutorService executorService;
   private final BusinessThreadFactory threadFactory;
-  private final int threadCount;
   private final int shutdownTimeoutSeconds;
   private volatile boolean shutdown = false;
 
@@ -27,10 +27,10 @@ public class BusinessExecutor implements AutoCloseable {
       throw new IllegalArgumentException("Thread count must be positive: " + threadCount);
     }
     if (shutdownTimeoutSeconds < 0) {
-      throw new IllegalArgumentException("Shutdown timeout must be non-negative: " + shutdownTimeoutSeconds);
+      throw new IllegalArgumentException(
+          "Shutdown timeout must be non-negative: " + shutdownTimeoutSeconds);
     }
 
-    this.threadCount = threadCount;
     this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
     this.threadFactory = new BusinessThreadFactory();
     this.executorService = Executors.newFixedThreadPool(threadCount, threadFactory);
@@ -50,14 +50,6 @@ public class BusinessExecutor implements AutoCloseable {
     } catch (Exception e) {
       throw new IllegalStateException("Failed to submit task: " + e.getMessage(), e);
     }
-  }
-
-  public boolean isShutdown() {
-    return shutdown || executorService.isShutdown();
-  }
-
-  public int getThreadCount() {
-    return threadCount;
   }
 
   @Override

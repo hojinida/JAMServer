@@ -3,6 +3,7 @@ package main.java.message;
 import java.nio.ByteBuffer;
 
 public class Message {
+
   private final short type;
   private final ByteBuffer payload;
 

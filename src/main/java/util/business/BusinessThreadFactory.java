@@ -4,6 +4,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class BusinessThreadFactory implements ThreadFactory {
+
   private static final AtomicInteger poolNumber = new AtomicInteger(1);
   private final AtomicInteger threadNumber = new AtomicInteger(1);
   private final String namePrefix;
@@ -30,9 +31,8 @@ public class BusinessThreadFactory implements ThreadFactory {
     thread.setDaemon(daemon);
     thread.setPriority(priority);
 
-    thread.setUncaughtExceptionHandler((t, e) ->
-        System.err.println("Uncaught exception in thread " + t.getName() + ": " + e.getMessage())
-    );
+    thread.setUncaughtExceptionHandler((t, e) -> System.err.println(
+        "Uncaught exception in thread " + t.getName() + ": " + e.getMessage()));
 
     return thread;
   }

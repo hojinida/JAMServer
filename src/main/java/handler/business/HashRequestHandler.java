@@ -5,8 +5,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import main.java.channel.Channel;
 import main.java.message.Message;
+import main.java.message.MessageEncoder;
 import main.java.message.MessageType;
-import main.java.util.buffer.BufferPool;
 import main.java.util.business.BusinessExecutor;
 
 public class HashRequestHandler {
@@ -14,8 +14,23 @@ public class HashRequestHandler {
   private static final int MAX_ITERATIONS = 100;
   private static final int MAX_DATA_LENGTH = 128;
   private static final int HASH_RESULT_SIZE = 32; // SHA-256
+  private static final int REQUEST_ID_SIZE = 8; // long
+  private static final int ITERATIONS_SIZE = 4; // int
+  private static final int DATA_LENGTH_SIZE = 4; // int
+  private static final int REQUEST_HEADER_SIZE =
+      REQUEST_ID_SIZE + ITERATIONS_SIZE + DATA_LENGTH_SIZE;
+  private static final int RESPONSE_PAYLOAD_SIZE =
+      REQUEST_ID_SIZE + ITERATIONS_SIZE + DATA_LENGTH_SIZE + HASH_RESULT_SIZE;
 
   private final BusinessExecutor businessExecutor;
+  private final MessageEncoder messageEncoder = MessageEncoder.getInstance();
+  private static final ThreadLocal<MessageDigest> SHA_256_DIGEST = ThreadLocal.withInitial(() -> {
+    try {
+      return MessageDigest.getInstance("SHA-256");
+    } catch (NoSuchAlgorithmException e) {
+      throw new RuntimeException("SHA-256 algorithm not available", e);
+    }
+  });
 
   public HashRequestHandler(BusinessExecutor businessExecutor) {
     this.businessExecutor = businessExecutor;
@@ -27,7 +42,8 @@ public class HashRequestHandler {
     }
 
     ByteBuffer payload = message.getPayload();
-    if (payload.remaining() < 16) {
+    if (payload.remaining() < REQUEST_HEADER_SIZE) {
+      System.err.println("Invalid HASH_REQUEST payload size: " + payload.remaining());
       channel.close();
       return;
     }
@@ -37,6 +53,7 @@ public class HashRequestHandler {
     int dataLength = payload.getInt();
 
     if (!isValidRequest(requestId, iterations, dataLength, payload.remaining())) {
+      System.err.println("Invalid HASH_REQUEST parameters.");
       channel.close();
       return;
     }
@@ -48,72 +65,52 @@ public class HashRequestHandler {
   }
 
   private boolean isValidRequest(long requestId, int iterations, int dataLength, int remaining) {
-    return requestId > 0
-        && iterations >= 1
-        && iterations <= MAX_ITERATIONS
-        && dataLength >= 0
-        && dataLength <= MAX_DATA_LENGTH
-        && dataLength <= remaining;
+    return requestId > 0 && iterations >= 1 && iterations <= MAX_ITERATIONS && dataLength >= 0
+        && dataLength <= MAX_DATA_LENGTH && dataLength == remaining;
   }
 
-  private void executeHashCalculation(Channel channel, long requestId, int iterations, byte[] data) {
-    ByteBuffer responseBuffer = null;
-    MessageDigest digest = null;
-
+  private void executeHashCalculation(Channel channel, long requestId, int iterations,
+      byte[] data) {
     try {
       if (!channel.isActive()) {
         return;
       }
 
-      digest = MessageDigest.getInstance("SHA-256");
+      MessageDigest digest = SHA_256_DIGEST.get();
       byte[] result = data;
 
       for (int i = 0; i < iterations; i++) {
-        digest.reset();
-        result = digest.digest(result);
-
-        if (iterations > 50 && i % 25 == 0 && !channel.isActive()) {
+        if (!channel.isActive()) {
+          System.out.println("Channel became inactive during hashing. Aborting.");
           return;
         }
+        digest.reset();
+        result = digest.digest(result);
       }
 
       if (!channel.isActive()) {
         return;
       }
 
-      responseBuffer = BufferPool.getInstance().acquireResponseBuffer();
+      ByteBuffer responsePayloadBuffer = ByteBuffer.allocate(RESPONSE_PAYLOAD_SIZE);
+      responsePayloadBuffer.putLong(requestId);
+      responsePayloadBuffer.putInt(iterations);
+      responsePayloadBuffer.putInt(HASH_RESULT_SIZE);
+      responsePayloadBuffer.put(result, 0, HASH_RESULT_SIZE);
+      responsePayloadBuffer.flip();
 
-      int payloadSize = 8 + 4 + 4 + HASH_RESULT_SIZE;
+      Message responseMessage = new Message(MessageType.HASH_RESPONSE.getValue(),
+          responsePayloadBuffer);
 
-      responseBuffer.clear();
-      responseBuffer.putInt(payloadSize);
-      responseBuffer.putShort(MessageType.HASH_RESPONSE.getValue());
+      ByteBuffer encodedResponseBuffer = messageEncoder.encode(responseMessage);
 
-      responseBuffer.putLong(requestId);
-      responseBuffer.putInt(iterations);
-      responseBuffer.putInt(HASH_RESULT_SIZE);
-      responseBuffer.put(result, 0, HASH_RESULT_SIZE);
-      responseBuffer.flip();
+      channel.queueResponse(encodedResponseBuffer);
 
-      channel.writeDirectBuffer(responseBuffer);
-
-      responseBuffer = null;
-
-    } catch (NoSuchAlgorithmException e) {
-      System.err.println("Critical error: SHA-256 algorithm not available: " + e.getMessage());
-      if (responseBuffer != null) {
-        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
-      }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      if (responseBuffer != null) {
-        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
-      }
     } catch (Exception e) {
-      System.err.println("Unexpected error in hash calculation: " + e.getMessage());
-      if (responseBuffer != null) {
-        BufferPool.getInstance().releaseResponseBuffer(responseBuffer);
-      }
+      System.err.println(
+          "Error during hash calculation or response preparation: " + e.getMessage());
+      e.printStackTrace();
+      channel.closeAsync();
     }
   }
 }

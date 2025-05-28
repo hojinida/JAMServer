@@ -5,43 +5,36 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MessageDecoder {
+
   private static final int HEADER_SIZE = 6;
   private static final int MAX_PAYLOAD_SIZE = 256;
-  private static final int MAX_RECOVERY_ATTEMPTS = 100;
-
   private static final MessageDecoder INSTANCE = new MessageDecoder();
-
-  private static final ThreadLocal<List<Message>> MESSAGE_LIST =
-      ThreadLocal.withInitial(() -> new ArrayList<>(16));
 
   public static MessageDecoder getInstance() {
     return INSTANCE;
   }
 
-  public List<Message> decode(ByteBuffer buffer) {
-    List<Message> messageList = MESSAGE_LIST.get();
-    messageList.clear();
+  public static class DecodeException extends Exception {
+
+    public DecodeException(String message) {
+      super(message);
+    }
+  }
+
+  public List<Message> decode(ByteBuffer buffer) throws DecodeException {
+    List<Message> messages = new ArrayList<>();
 
     while (buffer.remaining() >= HEADER_SIZE) {
       int startPos = buffer.position();
-
       int length = buffer.getInt();
-      short type = buffer.getShort();
+      short typeValue = buffer.getShort();
 
       if (length < 0 || length > MAX_PAYLOAD_SIZE) {
-        if (!attemptRecovery(buffer, startPos)) {
-          buffer.position(buffer.limit());
-          break;
-        }
-        continue;
+        throw new DecodeException("Invalid message length: " + length);
       }
 
-      if (!isValidMessageType(type)) {
-        if (!attemptRecovery(buffer, startPos)) {
-          buffer.position(buffer.limit());
-          break;
-        }
-        continue;
+      if (!isValidMessageType(typeValue)) {
+        throw new DecodeException("Invalid message type: " + typeValue);
       }
 
       if (buffer.remaining() < length) {
@@ -50,62 +43,31 @@ public class MessageDecoder {
       }
 
       try {
-        int oldLimit = buffer.limit();
-        buffer.limit(buffer.position() + length);
-        ByteBuffer payload = buffer.slice();
-        buffer.limit(oldLimit);
-        buffer.position(buffer.position() + length);
-
-        messageList.add(new Message(type, payload.asReadOnlyBuffer()));
-
+        ByteBuffer payload = extractPayload(buffer, length);
+        messages.add(new Message(typeValue, payload));
       } catch (Exception e) {
-        System.err.println("Failed to create message: " + e.getMessage());
-        buffer.position(startPos);
-        if (!attemptRecovery(buffer, startPos)) {
-          buffer.position(buffer.limit());
-          break;
-        }
+        throw new DecodeException("Failed to create message: " + e.getMessage());
       }
     }
 
-    return messageList;
+    return messages;
   }
 
-  private boolean isValidMessageType(short type) {
+  private boolean isValidMessageType(short typeValue) {
     try {
-      MessageType.fromValue(type);
+      MessageType.fromValue(typeValue);
       return true;
     } catch (IllegalArgumentException e) {
       return false;
     }
   }
 
-  private boolean attemptRecovery(ByteBuffer buffer, int errorPos) {
-    int originalPosition = buffer.position();
-    int searchStart = errorPos + 1;
-    int searchEnd = Math.min(errorPos + MAX_RECOVERY_ATTEMPTS, buffer.limit() - HEADER_SIZE);
-
-    for (int pos = searchStart; pos <= searchEnd; pos++) {
-      buffer.position(pos);
-
-      if (buffer.remaining() < HEADER_SIZE) {
-        break;
-      }
-
-      int testLength = buffer.getInt(pos);
-      short testType = buffer.getShort(pos + 4);
-
-      if (testLength >= 0 && testLength <= MAX_PAYLOAD_SIZE && isValidMessageType(testType)) {
-        if (pos + HEADER_SIZE + testLength <= buffer.limit()) {
-          System.err.println("Recovery successful: skipped " + (pos - errorPos) + " bytes");
-          buffer.position(pos);
-          return true;
-        }
-      }
-    }
-
-    System.err.println("Recovery failed: no valid header found within " + MAX_RECOVERY_ATTEMPTS + " bytes");
-    buffer.position(originalPosition);
-    return false;
+  private ByteBuffer extractPayload(ByteBuffer buffer, int length) {
+    int oldLimit = buffer.limit();
+    buffer.limit(buffer.position() + length);
+    ByteBuffer payload = buffer.slice().asReadOnlyBuffer();
+    buffer.limit(oldLimit);
+    buffer.position(buffer.position() + length);
+    return payload;
   }
 }

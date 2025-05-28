@@ -4,8 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public enum MessageType {
-  HASH_REQUEST((short) 1),
-  HASH_RESPONSE((short) 2);
+  HASH_REQUEST((short) 1), HASH_RESPONSE((short) 2);
 
   private final short value;
   private static final Map<Short, MessageType> VALUE_CACHE = new HashMap<>();
