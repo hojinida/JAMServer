@@ -3,22 +3,17 @@ package main.java.handler;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import main.java.server.ServerConfig;
 import main.java.util.NioThreadFactory;
 
 public class BusinessExecutor implements AutoCloseable {
-
-  private static final int DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5;
 
   private final ExecutorService executorService;
   private final int shutdownTimeoutSeconds;
   private volatile boolean shutdown = false;
 
   public BusinessExecutor() {
-    this(Runtime.getRuntime().availableProcessors());
-  }
-
-  public BusinessExecutor(int threadCount) {
-    this(threadCount, DEFAULT_SHUTDOWN_TIMEOUT_SECONDS);
+    this(ServerConfig.BUSINESS_THREAD_COUNT, ServerConfig.DEFAULT_SHUTDOWN_TIMEOUT_SECONDS);
   }
 
   public BusinessExecutor(int threadCount, int shutdownTimeoutSeconds) {
@@ -31,7 +26,8 @@ public class BusinessExecutor implements AutoCloseable {
     }
 
     this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
-    this.executorService = Executors.newFixedThreadPool(threadCount, new NioThreadFactory("business-pool"));
+    this.executorService = Executors.newFixedThreadPool(threadCount,
+        new NioThreadFactory("business-pool"));
   }
 
   public void submit(Runnable task) {

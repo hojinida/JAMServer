@@ -3,6 +3,7 @@ package main.java.util;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
+
 public class NioThreadFactory implements ThreadFactory {
 
   private static final AtomicInteger poolNumber = new AtomicInteger(1);
@@ -33,9 +34,8 @@ public class NioThreadFactory implements ThreadFactory {
     Thread thread = new Thread(r, namePrefix + threadNumber.getAndIncrement());
     thread.setDaemon(daemon);
     thread.setPriority(priority);
-    thread.setUncaughtExceptionHandler((t, e) ->
-        System.err.println("Uncaught exception in thread " + t.getName() + ": " + e.getMessage())
-    );
+    thread.setUncaughtExceptionHandler((t, e) -> System.err.println(
+        "Uncaught exception in thread " + t.getName() + ": " + e.getMessage()));
     return thread;
   }
 }

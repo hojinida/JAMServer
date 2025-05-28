@@ -28,7 +28,8 @@ public class ChannelHandler {
       System.err.println("Channel #" + channel.getChannelId() + " decode error: " + e.getMessage());
       channel.close();
     } catch (Exception e) {
-      System.err.println("Channel #" + channel.getChannelId() + " processing error: " + e.getMessage());
+      System.err.println(
+          "Channel #" + channel.getChannelId() + " processing error: " + e.getMessage());
       e.printStackTrace();
       channel.close();
     }
@@ -39,7 +40,8 @@ public class ChannelHandler {
   }
 
   public void exceptionCaught(NioChannel channel, Throwable cause) {
-    System.err.println("Exception caught for Channel #" + channel.getChannelId() + ": " + cause.getMessage());
+    System.err.println(
+        "Exception caught for Channel #" + channel.getChannelId() + ": " + cause.getMessage());
     cause.printStackTrace();
     channel.close();
   }

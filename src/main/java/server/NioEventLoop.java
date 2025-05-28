@@ -9,6 +9,7 @@ import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,17 +20,16 @@ import main.java.util.NioThreadFactory;
 
 public class NioEventLoop implements Closeable {
 
+  private final int id;
   private final Selector selector;
   private final ExecutorService executor;
-  private final Queue<SocketChannel> pendingChannels = new ConcurrentLinkedQueue<>();
   private final Queue<Runnable> taskQueue = new ConcurrentLinkedQueue<>();
-  private volatile boolean shutdown = false;
-  private final int id;
-
   private final ChannelHandler channelHandler;
   private final AtomicLong connectionCounter;
+  private volatile boolean shutdown = false;
 
-  public NioEventLoop(int id, ChannelHandler channelHandler, AtomicLong connectionCounter) throws IOException {
+  public NioEventLoop(int id, ChannelHandler channelHandler, AtomicLong connectionCounter)
+      throws IOException {
     this.id = id;
     this.selector = Selector.open();
     this.channelHandler = channelHandler;
@@ -64,11 +64,19 @@ public class NioEventLoop implements Closeable {
     while (!Thread.currentThread().isInterrupted() && !shutdown) {
       try {
         executeTasks();
-        registerPendingChannels();
 
-        selector.select(500);
+        selector.select();
 
-        Iterator<SelectionKey> it = selector.selectedKeys().iterator();
+        if (shutdown) {
+          break;
+        }
+
+        Set<SelectionKey> selectedKeys = selector.selectedKeys();
+        if (selectedKeys.isEmpty() && taskQueue.isEmpty()) {
+          continue;
+        }
+
+        Iterator<SelectionKey> it = selectedKeys.iterator();
         while (it.hasNext()) {
           SelectionKey key = it.next();
           it.remove();
@@ -85,39 +93,32 @@ public class NioEventLoop implements Closeable {
         e.printStackTrace();
       }
     }
-
-    try {
-      if (selector.isOpen()) selector.close();
-    } catch (IOException e) {
-      System.err.println("Error closing selector #" + id + ": " + e.getMessage());
-    }
+    closeSelectorAndChannels();
   }
 
   public void registerChannel(SocketChannel channel) {
-    pendingChannels.offer(channel);
-    selector.wakeup();
-  }
-
-  private void registerPendingChannels() {
-    SocketChannel socketChannel;
-    while ((socketChannel = pendingChannels.poll()) != null) {
+    addTask(() -> {
       NioChannel nioChannel = null;
       try {
-        socketChannel.configureBlocking(false);
-        SelectionKey key = socketChannel.register(selector, SelectionKey.OP_READ);
-        nioChannel = new NioChannel(socketChannel, key, this, channelHandler, connectionCounter);
+        channel.configureBlocking(false);
+        SelectionKey key = channel.register(selector, SelectionKey.OP_READ);
+        nioChannel = new NioChannel(channel, key, this, channelHandler, connectionCounter);
         key.attach(nioChannel);
       } catch (Exception e) {
-        System.err.println("Error registering channel in event loop #" + id + ": " + e.getMessage());
+        System.err.println(
+            "Error registering channel in event loop #" + id + ": " + e.getMessage());
         e.printStackTrace();
         if (nioChannel != null) {
           nioChannel.close();
-        } else if (socketChannel != null) {
-          try { socketChannel.close(); } catch (IOException ignored) {}
+        } else {
+          try {
+            channel.close();
+          } catch (IOException ignored) {
+          }
           connectionCounter.decrementAndGet();
         }
       }
-    }
+    });
   }
 
   private void processKey(SelectionKey key) {
@@ -140,35 +141,57 @@ public class NioEventLoop implements Closeable {
     } catch (CancelledKeyException e) {
       closeChannel(key, channel);
     } catch (Exception e) {
-      String channelIdStr = (channel != null) ? String.valueOf(channel.getChannelId()) : "unknown";
-      System.err.println("Error processing key for channel #" + channelIdStr + ": " + e.getMessage());
+      System.err.println(
+          "Error processing key for channel #" + (channel != null ? channel.getChannelId()
+              : "unknown") + ": " + e.getMessage());
       e.printStackTrace();
       closeChannel(key, channel);
     }
   }
 
-
   private void closeChannel(SelectionKey key, NioChannel channel) {
     if (channel != null) {
       channel.closeAsync();
-    } else {
+    } else if (key != null) {
       try {
         key.cancel();
-        if (key.channel().isOpen()) key.channel().close();
+        if (key.channel() != null && key.channel().isOpen()) {
+          key.channel().close();
+        }
       } catch (Exception e) {
         System.err.println("Error closing orphaned key: " + e.getMessage());
       }
     }
   }
 
+  private void closeSelectorAndChannels() {
+    try {
+      if (selector.isOpen()) {
+        for (SelectionKey key : selector.keys()) {
+          closeChannel(key, (NioChannel) key.attachment());
+        }
+        selector.close();
+      }
+    } catch (IOException e) {
+      System.err.println("Error closing selector #" + id + ": " + e.getMessage());
+    }
+  }
+
+
   @Override
   public void close() {
-    if (shutdown) return;
+    if (shutdown) {
+      return;
+    }
     shutdown = true;
     System.out.println("Shutting down EventLoop #" + id + "...");
-    executor.shutdown();
+
+    addTask(() -> {
+      System.out.println("Processing shutdown task in EventLoop #" + id);
+    });
     selector.wakeup();
 
+    executor.shutdown();
     try {
       if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
         executor.shutdownNow();
@@ -177,5 +200,6 @@ public class NioEventLoop implements Closeable {
       executor.shutdownNow();
       Thread.currentThread().interrupt();
     }
+    System.out.println("EventLoop #" + id + " shutdown completed.");
   }
 }

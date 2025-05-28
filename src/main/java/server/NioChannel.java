@@ -15,36 +15,27 @@ import main.java.channel.ChannelHandler;
 public class NioChannel implements Closeable {
 
   private static final AtomicLong CHANNEL_ID_GENERATOR = new AtomicLong(0);
-  private static final int READ_BUFFER_SIZE = 1024;
 
   private final long channelId;
   private final SocketChannel socketChannel;
   private final SelectionKey selectionKey;
   private final NioEventLoop eventLoop;
-  private final AtomicBoolean active = new AtomicBoolean(false);
+  private final ChannelHandler handler;
   private final AtomicLong connectionCounter;
+  private final AtomicBoolean active = new AtomicBoolean(true);
 
   private final ByteBuffer readBuffer;
   private final Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
 
-  private final ChannelHandler handler;
-
   public NioChannel(SocketChannel socketChannel, SelectionKey selectionKey, NioEventLoop eventLoop,
       ChannelHandler handler, AtomicLong connectionCounter) {
-
     this.channelId = CHANNEL_ID_GENERATOR.incrementAndGet();
     this.socketChannel = socketChannel;
     this.selectionKey = selectionKey;
     this.eventLoop = eventLoop;
     this.handler = handler;
     this.connectionCounter = connectionCounter;
-    this.readBuffer = ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
-    this.activate();
-  }
-
-  public void activate() {
-    if (active.compareAndSet(false, true)) {
-    }
+    this.readBuffer = ByteBuffer.allocateDirect(ServerConfig.READ_BUFFER_SIZE);
   }
 
   public boolean isActive() {
@@ -88,6 +79,7 @@ public class NioChannel implements Closeable {
     if (!isActive()) {
       return;
     }
+
     try {
       flush();
     } catch (IOException e) {
@@ -100,7 +92,6 @@ public class NioChannel implements Closeable {
     ByteBuffer buffer;
     while ((buffer = writeQueue.peek()) != null) {
       socketChannel.write(buffer);
-
       if (buffer.hasRemaining()) {
         return;
       }
@@ -112,11 +103,24 @@ public class NioChannel implements Closeable {
       if ((interestOps & SelectionKey.OP_WRITE) != 0) {
         try {
           selectionKey.interestOps(interestOps & ~SelectionKey.OP_WRITE);
-        } catch (CancelledKeyException | IllegalArgumentException e) {
-
+        } catch (CancelledKeyException e) {
+          internalClose();
         }
       }
     }
+  }
+
+  public void queueResponse(ByteBuffer buffer) {
+    if (!isActive()) {
+      return;
+    }
+
+    eventLoop.addTask(() -> {
+      if (isActive()) {
+        writeQueue.offer(buffer);
+        registerWriteInterestIfNeeded();
+      }
+    });
   }
 
   private void registerWriteInterestIfNeeded() {
@@ -136,6 +140,7 @@ public class NioChannel implements Closeable {
 
   private void internalClose() {
     if (active.compareAndSet(true, false)) {
+      connectionCounter.decrementAndGet();
       try {
         if (selectionKey.isValid()) {
           selectionKey.cancel();
@@ -143,23 +148,9 @@ public class NioChannel implements Closeable {
       } catch (Exception e) { /* Ignore */ }
       try {
         socketChannel.close();
-      } catch (IOException e) { /* Ignore */ } finally {
-        writeQueue.clear();
-        connectionCounter.decrementAndGet();
-      }
+      } catch (IOException e) { /* Ignore */ }
+      writeQueue.clear();
     }
-  }
-
-  public void queueResponse(ByteBuffer buffer) {
-    if (!isActive()) {
-      return;
-    }
-    eventLoop.addTask(() -> {
-      if (isActive()) {
-        writeQueue.offer(buffer);
-        registerWriteInterestIfNeeded();
-      }
-    });
   }
 
   public void closeAsync() {
