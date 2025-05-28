@@ -26,21 +26,33 @@ public class NioAcceptor implements Closeable {
   private volatile boolean shutdown = false;
 
   public NioAcceptor(InetSocketAddress listenAddress, NioEventLoop[] eventLoops,
-      AtomicLong connectionCounter) throws IOException {
+      AtomicLong connectionCounter, int acceptorId) throws IOException { // acceptorId 추가
     this.eventLoops = eventLoops;
     this.connectionCounter = connectionCounter;
 
     this.selector = Selector.open();
-    this.executor = Executors.newSingleThreadExecutor(new NioThreadFactory("acceptor-pool"));
+    this.executor = Executors.newSingleThreadExecutor(
+        new NioThreadFactory("acceptor-pool-" + acceptorId));
 
     this.serverChannel = ServerSocketChannel.open();
     serverChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+
+    try {
+      serverChannel.setOption(StandardSocketOptions.SO_REUSEPORT, true);
+      System.out.println(
+          "SO_REUSEPORT enabled for " + listenAddress + " on Acceptor " + acceptorId);
+    } catch (UnsupportedOperationException | IOException e) {
+      System.err.println(
+          "WARNING: SO_REUSEPORT is not supported, cannot run multiple acceptors on the same port. Acceptor "
+              + acceptorId + " might fail. " + e.getMessage());
+    }
+
     serverChannel.setOption(StandardSocketOptions.SO_RCVBUF, ServerConfig.RECEIVE_BUFFER_SIZE);
     serverChannel.configureBlocking(false);
     serverChannel.socket().bind(listenAddress, ServerConfig.BACKLOG);
     serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
-    System.out.println("NioAcceptor listening on " + listenAddress);
+    System.out.println("NioAcceptor #" + acceptorId + " listening on " + listenAddress);
   }
 
   public void start() {

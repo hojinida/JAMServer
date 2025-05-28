@@ -12,7 +12,7 @@ import main.java.message.MessageDecoder;
 
 public class JamServer implements AutoCloseable {
 
-  private final NioAcceptor connectionAcceptor;
+  private final NioAcceptor[] connectionAcceptors;
   private final NioEventLoop[] eventLoops;
   private final BusinessExecutor businessExecutor;
   private volatile boolean running;
@@ -27,18 +27,23 @@ public class JamServer implements AutoCloseable {
     ChannelHandler channelHandler = new ChannelHandler(decoder, businessHandler);
     AtomicLong connectionCounter = new AtomicLong(0);
 
-    int eventLoopSize = ServerConfig.N_CORES;
+    int eventLoopSize = ServerConfig.EVENT_LOOP_COUNT;
     this.eventLoops = new NioEventLoop[eventLoopSize];
     for (int i = 0; i < eventLoopSize; i++) {
       this.eventLoops[i] = new NioEventLoop(i, channelHandler, connectionCounter);
       this.eventLoops[i].start();
     }
 
-    this.connectionAcceptor = new NioAcceptor(address, eventLoops, connectionCounter);
-    this.connectionAcceptor.start();
+    int acceptorCount = ServerConfig.ACCEPTOR_COUNT;
+    this.connectionAcceptors = new NioAcceptor[acceptorCount];
+    for (int i = 0; i < acceptorCount; i++) {
+      this.connectionAcceptors[i] = new NioAcceptor(address, eventLoops, connectionCounter, i + 1);
+      this.connectionAcceptors[i].start();
+    }
 
     System.out.println(
-        "JamServer started on port " + port + " with " + eventLoopSize + " event loops.");
+        "JamServer started on port " + port + " with " + acceptorCount + " acceptors and "
+            + eventLoopSize + " event loops.");
   }
 
   @Override
@@ -49,9 +54,13 @@ public class JamServer implements AutoCloseable {
     running = false;
     System.out.println("Server shutdown sequence initiated...");
 
-    if (connectionAcceptor != null) {
-      System.out.println("Closing NioAcceptor...");
-      connectionAcceptor.close();
+    if (connectionAcceptors != null) {
+      System.out.println("Closing NioAcceptors...");
+      for (NioAcceptor acceptor : connectionAcceptors) {
+        if (acceptor != null) {
+          acceptor.close();
+        }
+      }
     }
 
     if (eventLoops != null) {
@@ -83,13 +92,25 @@ public class JamServer implements AutoCloseable {
 
   public static void main(String[] args) throws IOException, InterruptedException {
     final int port = ServerConfig.DEFAULT_PORT;
-    final JamServer server = new JamServer(port);
+    JamServer server = null;
+    try {
+      server = new JamServer(port);
+    } catch (IOException e) {
+      System.err.println("Failed to start server: " + e.getMessage());
+      e.printStackTrace();
+      System.exit(1);
+    }
+
+    final JamServer finalServer = server;
     final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try {
         System.out.println("Shutdown hook triggered.");
-        server.shutdownGracefully(ServerConfig.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (finalServer != null) {
+          finalServer.shutdownGracefully(ServerConfig.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+              TimeUnit.SECONDS);
+        }
       } catch (Exception e) {
         e.printStackTrace();
       } finally {
