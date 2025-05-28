@@ -2,34 +2,42 @@ package main.java.util.buffer;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BufferPool {
 
   private static final int READ_BUFFER_SIZE = 1024;
-  private static final int READ_POOL_SIZE = 30000;
-
   private static final int RESPONSE_BUFFER_SIZE = 64;
-  private static final int RESPONSE_POOL_SIZE = 50000;
 
-  private static final BufferPool INSTANCE = new BufferPool();
+  private final int readPoolSize;
+  private final int responsePoolSize;
+
+  private static final BufferPool INSTANCE = new BufferPool(30000, 50000);
 
   private final ConcurrentLinkedQueue<ByteBuffer> readBuffers;
   private final ConcurrentLinkedQueue<ByteBuffer> responseBuffers;
 
-  private BufferPool() {
-    readBuffers = new ConcurrentLinkedQueue<>();
-    responseBuffers = new ConcurrentLinkedQueue<>();
+  private final AtomicInteger readBuffersCreated = new AtomicInteger(0);
+  private final AtomicInteger responseBuffersCreated = new AtomicInteger(0);
 
-    for (int i = 0; i < READ_POOL_SIZE; i++) {
+  private BufferPool(int readPoolSize, int responsePoolSize) {
+    this.readPoolSize = readPoolSize;
+    this.responsePoolSize = responsePoolSize;
+
+    this.readBuffers = new ConcurrentLinkedQueue<>();
+    this.responseBuffers = new ConcurrentLinkedQueue<>();
+
+    for (int i = 0; i < readPoolSize; i++) {
       readBuffers.offer(ByteBuffer.allocateDirect(READ_BUFFER_SIZE));
     }
 
-    for (int i = 0; i < RESPONSE_POOL_SIZE; i++) {
+    for (int i = 0; i < responsePoolSize; i++) {
       responseBuffers.offer(ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE));
     }
+
     System.out.println(
-        "BufferPool initialized: READ_POOL_SIZE=" + READ_POOL_SIZE + ", RESPONSE_POOL_SIZE="
-            + RESPONSE_POOL_SIZE);
+        "BufferPool initialized: " + "READ_POOL_SIZE=" + readPoolSize + ", RESPONSE_POOL_SIZE="
+            + responsePoolSize);
   }
 
   public static BufferPool getInstance() {
@@ -44,8 +52,16 @@ public class BufferPool {
       return buffer;
     }
 
-    System.out.println("Read buffer pool empty - Allocating new buffer.");
-    return ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
+    int created = readBuffersCreated.get();
+    if (created < readPoolSize / 2) {
+      readBuffersCreated.incrementAndGet();
+      System.err.println(
+          "Read buffer pool depleted - Creating new buffer (" + (created + 1) + "/" + (readPoolSize
+              / 2) + " extra buffers)");
+      return ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
+    }
+
+    throw new IllegalStateException("Read buffer pool exhausted and cannot create more buffers");
   }
 
   public ByteBuffer acquireResponseBuffer() {
@@ -56,14 +72,32 @@ public class BufferPool {
       return buffer;
     }
 
-    System.out.println("Response buffer pool empty - Allocating new buffer.");
-    return ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE);
+    int created = responseBuffersCreated.get();
+    if (created < responsePoolSize / 2) {
+      responseBuffersCreated.incrementAndGet();
+      System.err.println(
+          "Response buffer pool depleted - Creating new buffer (" + (created + 1) + "/" + (
+              responsePoolSize / 2) + " extra buffers)");
+      return ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE);
+    }
+
+    throw new IllegalStateException(
+        "Response buffer pool exhausted and cannot create more buffers");
   }
 
   public void releaseReadBuffer(ByteBuffer buffer) {
-    if (buffer == null || !buffer.isDirect() || buffer.capacity() != READ_BUFFER_SIZE) {
-      System.err.println("Invalid read buffer returned to pool. Discarding.");
-      return;
+    if (buffer == null) {
+      throw new IllegalArgumentException("Cannot release null buffer");
+    }
+
+    if (!buffer.isDirect()) {
+      throw new IllegalArgumentException("Buffer must be direct: " + buffer);
+    }
+
+    if (buffer.capacity() != READ_BUFFER_SIZE) {
+      throw new IllegalArgumentException(
+          "Invalid read buffer capacity: expected " + READ_BUFFER_SIZE + ", got "
+              + buffer.capacity());
     }
 
     buffer.clear();
@@ -71,9 +105,18 @@ public class BufferPool {
   }
 
   public void releaseResponseBuffer(ByteBuffer buffer) {
-    if (buffer == null || !buffer.isDirect() || buffer.capacity() != RESPONSE_BUFFER_SIZE) {
-      System.err.println("Invalid response buffer returned to pool. Discarding.");
-      return;
+    if (buffer == null) {
+      throw new IllegalArgumentException("Cannot release null buffer");
+    }
+
+    if (!buffer.isDirect()) {
+      throw new IllegalArgumentException("Buffer must be direct: " + buffer);
+    }
+
+    if (buffer.capacity() != RESPONSE_BUFFER_SIZE) {
+      throw new IllegalArgumentException(
+          "Invalid response buffer capacity: expected " + RESPONSE_BUFFER_SIZE + ", got "
+              + buffer.capacity());
     }
 
     buffer.clear();
