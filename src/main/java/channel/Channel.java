@@ -32,14 +32,13 @@ public class Channel implements Closeable {
   private final ByteBuffer dedicatedReadBuffer;
   private final Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
   private final AtomicBoolean active = new AtomicBoolean(false);
-  private final AtomicBoolean writeRegistered = new AtomicBoolean(false);
 
   private final MessageDecoder decoder;
   private final HashRequestHandler businessHandler;
 
   public Channel(SocketChannel socketChannel, SelectionKey selectionKey,
       EventProcessor eventProcessor, int processorIndex, MessageDecoder decoder,
-      HashRequestHandler businessHandler){
+      HashRequestHandler businessHandler) {
 
     this.channelId = CHANNEL_ID_GENERATOR.incrementAndGet();
     this.socketChannel = socketChannel;
@@ -106,6 +105,7 @@ public class Channel implements Closeable {
     }
   }
 
+
   public void handleWrite() {
     if (!isActive()) {
       return;
@@ -133,34 +133,36 @@ public class Channel implements Closeable {
       if (buffer.hasRemaining()) {
         return;
       }
-
       writeQueue.poll();
       BufferPool.getInstance().releaseResponseBuffer(buffer);
     }
 
-    if (writeQueue.isEmpty() && selectionKey.isValid() && writeRegistered.compareAndSet(true,
-        false)) {
-      try {
-        selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
-      } catch (CancelledKeyException | IllegalArgumentException e) {
-        System.err.println(
-            "Channel #" + channelId + " error deregistering OP_WRITE: " + e.getMessage());
+    if (writeQueue.isEmpty() && selectionKey.isValid()) {
+      final int interestOps = selectionKey.interestOps();
+      if ((interestOps & SelectionKey.OP_WRITE) != 0) {
+        try {
+          selectionKey.interestOps(interestOps & ~SelectionKey.OP_WRITE);
+        } catch (CancelledKeyException | IllegalArgumentException e) {
+          System.err.println(
+              "Channel #" + channelId + " error deregistering OP_WRITE: " + e.getMessage());
+        }
       }
     }
   }
 
-  private void internalRegisterWriteInterest() {
+  private void registerWriteInterestIfNeeded() {
     if (!isActive() || !selectionKey.isValid()) {
       return;
     }
 
-    if (writeRegistered.compareAndSet(false, true)) {
+    final int interestOps = selectionKey.interestOps();
+    if ((interestOps & SelectionKey.OP_WRITE) == 0) {
       try {
-        selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_WRITE);
+        selectionKey.interestOps(interestOps | SelectionKey.OP_WRITE);
       } catch (CancelledKeyException | IllegalArgumentException e) {
         System.err.println(
             "Channel #" + channelId + " error registering OP_WRITE: " + e.getMessage());
-        writeRegistered.set(false);
+        internalClose();
       }
     }
   }
@@ -171,10 +173,14 @@ public class Channel implements Closeable {
         if (selectionKey.isValid()) {
           selectionKey.cancel();
         }
-      } catch (Exception e) {/* ... */}
+      } catch (Exception e) {
+        System.err.println("Channel #" + channelId + " error cancelling key: " + e.getMessage());
+      }
       try {
         socketChannel.close();
-      } catch (IOException e) {/* ... */} finally {
+      } catch (IOException e) {
+        System.err.println("Channel #" + channelId + " error closing socket: " + e.getMessage());
+      } finally {
         if (dedicatedReadBuffer != null) {
           BufferPool.getInstance().releaseReadBuffer(dedicatedReadBuffer);
         }
@@ -196,15 +202,18 @@ public class Channel implements Closeable {
     eventProcessor.addTask(processorIndex, () -> {
       if (isActive()) {
         writeQueue.offer(buffer);
-        internalRegisterWriteInterest();
+        registerWriteInterestIfNeeded();
       } else {
+
         BufferPool.getInstance().releaseResponseBuffer(buffer);
       }
     });
+    eventProcessor.wakeup(processorIndex);
   }
 
   public void closeAsync() {
     eventProcessor.addTask(processorIndex, this::internalClose);
+    eventProcessor.wakeup(processorIndex);
   }
 
   @Override

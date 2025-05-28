@@ -1,31 +1,24 @@
 package main.java.util.buffer;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class BufferPool {
 
   private static final int READ_BUFFER_SIZE = 1024;
   private static final int RESPONSE_BUFFER_SIZE = 64;
 
-  private final int readPoolSize;
-  private final int responsePoolSize;
 
   private static final BufferPool INSTANCE = new BufferPool(30000, 50000);
 
-  private final ConcurrentLinkedQueue<ByteBuffer> readBuffers;
-  private final ConcurrentLinkedQueue<ByteBuffer> responseBuffers;
-
-  private final AtomicInteger readBuffersCreated = new AtomicInteger(0);
-  private final AtomicInteger responseBuffersCreated = new AtomicInteger(0);
+  private final BlockingQueue<ByteBuffer> readBuffers;
+  private final BlockingQueue<ByteBuffer> responseBuffers;
 
   private BufferPool(int readPoolSize, int responsePoolSize) {
-    this.readPoolSize = readPoolSize;
-    this.responsePoolSize = responsePoolSize;
 
-    this.readBuffers = new ConcurrentLinkedQueue<>();
-    this.responseBuffers = new ConcurrentLinkedQueue<>();
+    this.readBuffers = new LinkedBlockingQueue<>();
+    this.responseBuffers = new LinkedBlockingQueue<>();
 
     for (int i = 0; i < readPoolSize; i++) {
       readBuffers.offer(ByteBuffer.allocateDirect(READ_BUFFER_SIZE));
@@ -45,44 +38,27 @@ public class BufferPool {
   }
 
   public ByteBuffer acquireReadBuffer() {
-    ByteBuffer buffer = readBuffers.poll();
-
-    if (buffer != null) {
+    try {
+      ByteBuffer buffer = readBuffers.take();
       buffer.clear();
       return buffer;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      System.err.println("Interrupted while waiting for read buffer.");
+      throw new RuntimeException("Acquire read buffer interrupted", e);
     }
-
-    int created = readBuffersCreated.get();
-    if (created < readPoolSize / 2) {
-      readBuffersCreated.incrementAndGet();
-      System.err.println(
-          "Read buffer pool depleted - Creating new buffer (" + (created + 1) + "/" + (readPoolSize
-              / 2) + " extra buffers)");
-      return ByteBuffer.allocateDirect(READ_BUFFER_SIZE);
-    }
-
-    throw new IllegalStateException("Read buffer pool exhausted and cannot create more buffers");
   }
 
   public ByteBuffer acquireResponseBuffer() {
-    ByteBuffer buffer = responseBuffers.poll();
-
-    if (buffer != null) {
+    try {
+      ByteBuffer buffer = responseBuffers.take();
       buffer.clear();
       return buffer;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      System.err.println("Interrupted while waiting for response buffer.");
+      throw new RuntimeException("Acquire response buffer interrupted", e);
     }
-
-    int created = responseBuffersCreated.get();
-    if (created < responsePoolSize / 2) {
-      responseBuffersCreated.incrementAndGet();
-      System.err.println(
-          "Response buffer pool depleted - Creating new buffer (" + (created + 1) + "/" + (
-              responsePoolSize / 2) + " extra buffers)");
-      return ByteBuffer.allocateDirect(RESPONSE_BUFFER_SIZE);
-    }
-
-    throw new IllegalStateException(
-        "Response buffer pool exhausted and cannot create more buffers");
   }
 
   public void releaseReadBuffer(ByteBuffer buffer) {

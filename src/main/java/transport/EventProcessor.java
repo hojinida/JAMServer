@@ -12,7 +12,6 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import main.java.channel.Channel;
 import main.java.util.ConnectionManager;
 import main.java.util.TaskQueue;
@@ -25,7 +24,6 @@ public class EventProcessor implements Closeable {
   private final ExecutorService executor;
   private final int size;
   private final ChannelInitializer channelInitializer;
-  private final AtomicBoolean[] selecting;
   private volatile boolean shutdown = false;
 
   public EventProcessor(int size, ChannelInitializer channelInitializer) throws IOException {
@@ -34,14 +32,12 @@ public class EventProcessor implements Closeable {
     this.executor = Executors.newFixedThreadPool(size);
     this.pendingChannels = new ConcurrentLinkedQueue[size];
     this.taskQueues = new TaskQueue[size];
-    this.selecting = new AtomicBoolean[size];
     this.channelInitializer = channelInitializer;
 
     for (int i = 0; i < size; i++) {
       this.selectors[i] = Selector.open();
       this.taskQueues[i] = new TaskQueue();
       this.pendingChannels[i] = new ConcurrentLinkedQueue<>();
-      this.selecting[i] = new AtomicBoolean(false);
     }
   }
 
@@ -75,22 +71,18 @@ public class EventProcessor implements Closeable {
 
     while (!Thread.currentThread().isInterrupted() && !shutdown) {
       try {
-        taskQueue.executeTasks(50);
+        taskQueue.executeTasks(Integer.MAX_VALUE);
         registerPendingChannels(index);
 
-        selecting[index].set(true);
-        int selected = selector.select(100);
-        selecting[index].set(false);
+        selector.select();
 
-        if (selected == 0 && !taskQueue.isEmpty()) {
-          taskQueue.executeTasks(50);
+        Iterator<SelectionKey> it = selector.selectedKeys().iterator();
+        while (it.hasNext()) {
+          SelectionKey key = it.next();
+          it.remove();
+          processKey(key);
         }
 
-        if (selected > 0) {
-          processSelectedKeys(index);
-        }
-
-        taskQueue.executeTasks(50);
 
       } catch (ClosedSelectorException e) {
         System.out.println("Event processor #" + index + " selector closed, exiting run loop.");
@@ -153,44 +145,37 @@ public class EventProcessor implements Closeable {
     }
   }
 
-  private void processSelectedKeys(int index) {
-    Selector selector = selectors[index];
-    Iterator<SelectionKey> it = selector.selectedKeys().iterator();
-
-    while (it.hasNext()) {
-      SelectionKey key = it.next();
-      it.remove();
-
-      try {
-        if (!key.isValid()) {
-          closeChannel(key);
-          continue;
-        }
-
-        Channel channel = (Channel) key.attachment();
-        if (channel == null) {
-          closeChannel(key);
-          continue;
-        }
-
-        if (key.isReadable()) {
-          channel.handleRead();
-        }
-
-        if (key.isValid() && key.isWritable()) {
-          channel.handleWrite();
-        }
-
-      } catch (CancelledKeyException e) {
-        System.err.println("Key was cancelled: " + e.getMessage());
+  private void processKey(SelectionKey key) {
+    try {
+      if (!key.isValid()) {
         closeChannel(key);
-      } catch (Exception e) {
-        System.err.println("Error processing key: " + e.getMessage());
-        e.printStackTrace();
-        closeChannel(key);
+        return;
       }
+
+      Channel channel = (Channel) key.attachment();
+      if (channel == null) {
+        closeChannel(key);
+        return;
+      }
+
+      if (key.isReadable()) {
+        channel.handleRead();
+      }
+
+      if (key.isValid() && key.isWritable()) {
+        channel.handleWrite();
+      }
+
+    } catch (CancelledKeyException e) {
+      System.err.println("Key was cancelled: " + e.getMessage());
+      closeChannel(key);
+    } catch (Exception e) {
+      System.err.println("Error processing key: " + e.getMessage());
+      e.printStackTrace();
+      closeChannel(key);
     }
   }
+
 
   private void closeChannel(SelectionKey key) {
     Object attachment = key.attachment();
