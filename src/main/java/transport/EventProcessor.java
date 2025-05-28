@@ -3,6 +3,7 @@ package main.java.transport;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
@@ -25,6 +26,7 @@ public class EventProcessor implements Closeable {
   private final int size;
   private final ChannelInitializer channelInitializer;
   private final AtomicBoolean[] selecting;
+  private volatile boolean shutdown = false;
 
   public EventProcessor(int size, ChannelInitializer channelInitializer) throws IOException {
     this.size = size;
@@ -71,7 +73,7 @@ public class EventProcessor implements Closeable {
     Selector selector = selectors[index];
     TaskQueue taskQueue = taskQueues[index];
 
-    while (!Thread.currentThread().isInterrupted()) {
+    while (!Thread.currentThread().isInterrupted() && !shutdown) {
       try {
         taskQueue.executeTasks(50);
         registerPendingChannels(index);
@@ -90,6 +92,9 @@ public class EventProcessor implements Closeable {
 
         taskQueue.executeTasks(50);
 
+      } catch (ClosedSelectorException e) {
+        System.out.println("Event processor #" + index + " selector closed, exiting run loop.");
+        break;
       } catch (IOException e) {
         System.err.println("IOException in event processor #" + index + ": " + e.getMessage());
         e.printStackTrace();
@@ -206,6 +211,10 @@ public class EventProcessor implements Closeable {
 
   @Override
   public void close() {
+    if (shutdown) {
+      return;
+    }
+    shutdown = true;
     System.out.println("Shutting down EventProcessor...");
     executor.shutdown();
 
